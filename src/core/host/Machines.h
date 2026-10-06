@@ -102,6 +102,15 @@ constexpr uint32_t dspInputBits(FxInput in)
 // AMP page for an FX track: envelope held open (DEC/REL = 127 = infinite), as on the hardware
 constexpr std::array<uint8_t, 8> kDefaultAmpFx = {0, 0, 127, 127, 64, 64, 64, 0};
 
+// The knobs that act only on a trig or a note: the AMP envelope (ATK HOLD DEC REL) and portamento (PORT), and the
+// filter envelope (ATK DEC and its offsets BOFS WOFS). Bit k = block word k (AMP 0-7, FILT 8-15). A continuous effect
+// track (HostModel::setContinuous, Monomodule FX) holds them at kDefaultAmpFx / kDefaultFilt, and its editor hides them.
+constexpr uint32_t kTrigOnlyWords = 0xF08Fu;
+constexpr bool isTrigOnly(Page page, int k)
+{
+    return (page == Page::AMP || page == Page::FILT) && ((kTrigOnlyWords >> ((int(page) - 1) * 8 + k)) & 1u) != 0;
+}
+
 constexpr const char* kAmpLabels[8]   = {"ATK", "HOLD", "DEC", "REL", "DIST", "VOL", "PAN", "PORT"};
 constexpr const char* kFiltLabels[8]  = {"BASE", "WDTH", "HPQ", "LPQ", "ATK", "DEC", "BOFS", "WOFS"};
 constexpr const char* kEfxLabels[8]   = {"EQF", "EQG", "SRR", "DTIM", "DSND", "DFB", "DBAS", "DWID"};

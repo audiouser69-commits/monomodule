@@ -1,6 +1,7 @@
 // Monomodule One / Six editor: header, LEV column, machine block, the six pages (2 rows x 3), and on
 // Six a column of six track keys on the right (the hardware's track keys) that selects which track the
-// pages, machine block and LEV column edit. Every element is drawn from the hardware's LCD glyphs and
+// pages, machine block and LEV column edit. Monomodule FX has four pages (2 x 2: SYNTHESIS, FILT/AMP, EFFECTS,
+// LFO1-3 as tabs), the library strip under the tempo. Every element is drawn from the hardware's LCD glyphs and
 // fonts, black on white.
 #pragma once
 #include <juce_audio_utils/juce_audio_utils.h>
@@ -254,6 +255,7 @@ private:
     bool m_dragOver = false;
     juce::Rectangle<int> m_dropRect;
     void bindLfo(KnobPage& page, int lfo);
+    int lfoOfTab(int tab) const { return m_proc.isEffect() ? tab : tab + 1; }   // the tabbed LFO page: FX LFO1-3, else LFO2-3
     void bindTrackPages();
     std::unique_ptr<juce::FileChooser> m_chooser;
     MissingOsOverlay m_missingOs;

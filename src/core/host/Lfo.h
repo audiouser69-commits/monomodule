@@ -50,6 +50,9 @@ public:
     int raw(int lfo, int k) const { return m_raw[size_t(lfo)][size_t(k)]; }
     void trig() { m_trig = 1; }             // LFO trig pending, set by note-on; consumed by step()
     bool trigPending() const { return m_trig != 0; }
+    // Continuous effect track (HostModel::setContinuous): trigged once, so HOLD, ONE and HALF, which would freeze
+    // after that trig, run as TRIG (restarted by it, then running on). FREE and TRIG are unchanged.
+    void setContinuous(bool on) { m_continuous = on; }
 
     void step(int32_t elapsed, int32_t tick);      // elapsed = DSP blocks since the last step
     void interlaceAndAccumulate(int32_t tick);
@@ -76,11 +79,13 @@ public:
 
 private:
     void evaluate(int lfo, int32_t restart, int32_t inc);
+    int modeOf(int32_t shadow) const { const int m = trigModeOf(shadow); return m_continuous && m > LfoTrigged ? int(LfoTrigged) : m; }
 
     std::array<std::array<uint8_t, 8>, kNumLfos> m_raw{};
     std::array<std::array<int32_t, 8>, kNumLfos> m_shadow{};   // raw << 16, plus LFO->LFO modulation after apply()
     std::array<LfoState, kNumLfos> m_s{};
     int32_t m_trig = 0;
+    bool m_continuous = false;
 };
 
 } // namespace mnm::host

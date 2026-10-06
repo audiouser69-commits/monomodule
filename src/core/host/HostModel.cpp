@@ -69,9 +69,16 @@ void HostModel::noteOn(int note)
 void HostModel::noteOff() { m_pendingNote = 2; }
 void HostModel::forceInit() { m_pendingInit = true; }
 
+// The kit byte, or on a continuous track the FX track default of a trig-only knob.
+uint32_t HostModel::pageTarget(int w) const
+{
+    if (m_continuous && ((kTrigOnlyWords >> w) & 1u)) return uint32_t(w < 8 ? kDefaultAmpFx[size_t(w)] : kDefaultFilt[size_t(w - 8)]) << 16;
+    return uint32_t(m_raw[8 + w]) << 16;
+}
+
 void HostModel::settle()
 {
-    for (int k = 0; k < 24; ++k) m_words[k] = uint32_t(m_raw[8 + k]) << 16;      // AMP, FILT, EFX
+    for (int k = 0; k < 24; ++k) m_words[k] = pageTarget(k);                      // AMP, FILT, EFX
     for (int k = 0; k < 8; ++k)  m_words[Syn0 + k] = uint32_t(m_raw[k]) << 16;   // SYN
     m_words[PitchMod] = kPitchModRest;
     m_words[Level] = uint32_t(m_level) << 16;
@@ -82,7 +89,7 @@ void HostModel::settle()
 void HostModel::smoothing()
 {
     auto slew = [](uint32_t& cur, uint32_t target) { cur = (3u * cur + target) >> 2; };
-    for (int k = 0; k < 24; ++k) slew(m_words[k], uint32_t(m_raw[8 + k]) << 16);      // AMP, FILT, EFX
+    for (int k = 0; k < 24; ++k) slew(m_words[k], pageTarget(k));                      // AMP, FILT, EFX
     for (int k = 0; k < 8; ++k)  slew(m_words[Syn0 + k], uint32_t(m_raw[k]) << 16);   // SYN
     // word 30 = pitch modulation sum, bipolar around 64<<16 (DSP: pitch += w30*0xB000*2/2^24 - 0x5800,
     // i.e. 352 pitch units per step; 64 cancels the -0x5800 exactly). The LFO PTCH page adds to it.
@@ -95,6 +102,9 @@ void HostModel::rebuild(bool trigPending)
 {
     m_block.w = m_words;
     m_lfos.apply(m_block.w.data(), trigPending);
+    if (m_continuous)   // an LFO aimed at a held knob leaves it held
+        for (int w = 0; w < 16; ++w)
+            if ((kTrigOnlyWords >> w) & 1u) m_block.w[size_t(w)] = m_words[size_t(w)];
 }
 
 // Frame start: trigger/info words from the note state, LFO apply, then the frame-counted LFO housekeeping.

@@ -106,3 +106,37 @@ TEST_CASE(hostmodel_note_events_in_one_frame)
     for (int i = 0; i < 2; ++i) h.nextBlock();
     CHECK_EQ(h.nextBlock().w[NoteTrig], 0u);      // one-shot
 }
+
+TEST_CASE(hostmodel_continuous_holds_trig_only_knobs)
+{
+    // Monomodule FX (setContinuous): the trig-only knobs reach the DSP at the FX track defaults (envelope open, no
+    // portamento, no filter envelope) whatever their kit bytes and an LFO aimed at them say; the other knobs, and LFOs
+    // on them, work as before. On the hardware's tracks (One, Six) the same settings reach the DSP as they are.
+    auto make = [](bool continuous) {
+        HostModel h; h.setContinuous(continuous); h.setMachine(Machine::THRU);
+        const int amp[8] = {127, 127, 10, 0, 64, 100, 64, 127};   // ATK HOLD DEC REL DIST VOL PAN PORT
+        const int filt[8] = {30, 90, 0, 0, 100, 100, 0, 127};     // BASE WDTH HPQ LPQ ATK DEC BOFS WOFS
+        for (int k = 0; k < 8; ++k) { h.setParam(Page::AMP, k, amp[k]); h.setParam(Page::FILT, k, filt[k]); }
+        for (int l = 0; l < 2; ++l) {   // LFO1 on AMP DEC, LFO2 on AMP VOL: ISQR at SPD 0, a static full-depth pull down
+            h.setLfoParam(l, LfoPage, 35); h.setLfoParam(l, LfoDest, (l == 0 ? 2 : 5) * 16 + 8);
+            h.setLfoParam(l, LfoWave, 64); h.setLfoParam(l, LfoDpth, 127); h.setLfoParam(l, LfoSpd, 0);
+        }
+        h.settle();
+        for (int b = 0; b < 3 * 10; ++b) h.nextBlock();   // the LFOs are at full depth from frame 9
+        return h;
+    };
+    const auto fx = make(true);
+    const auto& w = fx.current().w;
+    for (int k = 0; k < 8; ++k) {
+        if (isTrigOnly(Page::AMP, k)) CHECK_EQ(w[size_t(k)], uint32_t(kDefaultAmpFx[size_t(k)]) << 16);
+        if (isTrigOnly(Page::FILT, k)) CHECK_EQ(w[size_t(8 + k)], uint32_t(kDefaultFilt[size_t(k)]) << 16);
+    }
+    CHECK_EQ(w[AmpVol], 0u);   // not held: LFO2 pulls 100 down to the clamp
+    CHECK_EQ(w[AmpDist], 64u << 16); CHECK_EQ(w[FiltBase], 30u << 16); CHECK_EQ(w[FiltWdth], 90u << 16);
+    CHECK_EQ(fx.param(Page::AMP, 2), 10);   // the kit byte itself is kept (presets carry it)
+    const auto one = make(false);
+    const auto& o = one.current().w;
+    CHECK_EQ(o[AmpDec], 0u);   // LFO1 closes DEC 10
+    CHECK_EQ(o[AmpAtk], 127u << 16); CHECK_EQ(o[AmpRel], 0u); CHECK_EQ(o[AmpPort], 127u << 16);
+    CHECK_EQ(o[FiltBofs], 0u); CHECK_EQ(o[FiltWofs], 127u << 16); CHECK_EQ(o[AmpVol], 0u);
+}

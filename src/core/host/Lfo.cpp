@@ -121,7 +121,7 @@ void TrackLfos::step(int32_t elapsed, int32_t tick)
     for (int l = 0; l < kNumLfos; ++l) {
         auto& s = m_s[size_t(l)];
         const auto& sh = m_shadow[size_t(l)];
-        const int mode = trigModeOf(sh[LfoTrig]);
+        const int mode = modeOf(sh[LfoTrig]);
         int32_t restart = mode == LfoHold ? 0 : trackTrig;
         // speed: ((SPD<<6) * tick * elapsed + rem + half) / divisor, remainder carried, then << (6 + MULT)
         int32_t d2 = mul32(mul32(sh[LfoSpd] >> 10, tick), elapsed);
@@ -156,7 +156,7 @@ void TrackLfos::evaluate(int lfo, int32_t restart, int32_t inc)
     auto& s = m_s[size_t(lfo)];
     const auto& sh = m_shadow[size_t(lfo)];
     const int wave = waveOf(sh[LfoWave]);
-    const int mode = trigModeOf(sh[LfoTrig]);
+    const int mode = modeOf(sh[LfoTrig]);
     kWave[wave & 0xF](s, restart, inc);
     const int32_t src = mode == LfoHold ? s.hold : s.out;
     const int32_t startValue = kStartValue[wave & 0xF];
@@ -208,7 +208,7 @@ void TrackLfos::apply(uint32_t* words, bool trigPending)
         const auto& sh = m_shadow[size_t(l)];
         int32_t value = s.acc;
         if (trigPending) {
-            const int mode = trigModeOf(sh[LfoTrig]);
+            const int mode = modeOf(sh[LfoTrig]);
             if (mode != LfoFree && mode != LfoHold) { s.acc = s.start; value = s.start; }
         }
         if (value == 0) continue;   // 0 is not added (and not clamped)

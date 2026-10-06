@@ -56,6 +56,7 @@ extern const char* const kLfoMultNames[7];
 // Raw <-> list index (unequal buckets; identity when n = 128).
 constexpr int listIndex(int raw, int n) { return ((2 * raw + 1) * n) >> 8; }
 constexpr int listRawMid(int idx, int n) { return (idx * 256 + 128) / (2 * n); }
+constexpr int listRawLast(int idx, int n) { int r = 127; while (r > 0 && listIndex(r, n) > idx) --r; return r; }
 
 inline const Bitmap* icon(Icons f, int i)
 {

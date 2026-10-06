@@ -6,7 +6,9 @@
 //       track channels), one stereo output bus per track. FX machines take the previous track's output
 //       (NEIBOR) or the side-chain input (INP AB), as KIT > ROUTING offers on the hardware.
 //   FX (Variant::Fx): One as an audio effect. One track that offers only the FX machines and processes the
-//       plugin's main input; no MIDI. Everything else (pages, LFOs, library, state) is One's.
+//       plugin's main input; no MIDI. It runs as a continuous effect: the knobs that act only on a trig or a note
+//       (host::kTrigOnlyWords) are held open in the engine and hidden in the editor, but stay parameters with their
+//       stored values. Everything else (pages, LFOs, library, state, the parameter list) is One's.
 // Every knob is stored raw 0..127 exactly as the hardware kit byte; only the display differs.
 #pragma once
 #include <juce_audio_processors/juce_audio_processors.h>

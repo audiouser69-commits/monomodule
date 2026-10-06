@@ -82,6 +82,7 @@ void MnmOneProcessor::loadEngine()
             const int slot = machineSlotOf(*tr);
             tr->currentMachine = machineSupported(slot) ? machineAt(slot) : host::Machine::SAW;   // preview machines: engine idles on SAW
             auto v = std::make_unique<MonoVoice>(*fwNew);
+            v->host().setContinuous(isEffect());   // FX: no trigs after the first, so nothing that needs one may close it
             v->host().setMachine(tr->currentMachine);
             v->host().setOutBuses(uint32_t(outBusMask(*tr)));
             v->host().setKeyTracking(keyTracks(tr->lpKeyTrack), keyTracks(tr->hpKeyTrack));

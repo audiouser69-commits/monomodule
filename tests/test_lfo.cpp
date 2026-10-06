@@ -152,6 +152,28 @@ TEST_CASE(lfo_trig_modes)
       CHECK(wraps >= 2); }
 }
 
+TEST_CASE(lfo_continuous_trig_modes)
+{
+    // A continuous effect track (Monomodule FX) is trigged once: HOLD, ONE and HALF run exactly as TRIG there, restarted
+    // by that trig and running on, where the hardware's modes would freeze after it. FREE and TRIG are unchanged.
+    auto run = [](int trigRaw, bool continuous) {
+        TrackLfos t; t.setContinuous(continuous);
+        t.setRaw(0, LfoTrig, trigRaw); t.setRaw(0, LfoPage, 21); t.setRaw(0, LfoDpth, 127); t.setRaw(0, LfoWave, 28);   // SAW
+        t.setRaw(0, LfoSpd, 127); t.setRaw(0, LfoMult, 118);
+        t.step(24, kTick120); t.trig();
+        std::vector<int32_t> trace;
+        for (int i = 0; i < 40; ++i) { runSteps(t, 1); trace.insert(trace.end(), {t.state(0).pos, t.state(0).out, t.state(0).acc}); }
+        return trace;
+    };
+    const auto trig = run(37, false);
+    CHECK(run(37, true) == trig);
+    for (int raw : {63, 88, 114}) {   // HOLD, ONE, HALF
+        CHECK(run(raw, true) == trig);
+        CHECK(run(raw, false) != trig);
+    }
+    CHECK(run(0, true) == run(0, false));   // FREE
+}
+
 TEST_CASE(lfo_depth_scaling_and_accumulate)
 {
     // Page target: DPTH 127, SQR high = 0x800000 -> target (0x800000>>12)*(127<<5) = 0x7F0000 = 127 steps

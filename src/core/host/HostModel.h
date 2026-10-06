@@ -39,6 +39,11 @@ public:
     void setRouting(uint32_t bits) { m_routing = bits; }
     void setOutBuses(uint32_t mask) { m_outBuses = mask & 7u; }             // OUT BUS AB/CD/EF bits
     void setKeyTracking(bool lowPass, bool highPass) { m_lpKeyTrack = lowPass; m_hpKeyTrack = highPass; }
+    // Continuous effect (Monomodule FX): the machine is trigged once and then runs for as long as the plugin does, so
+    // the knobs that act only on a trig or a note (kTrigOnlyWords) are held where a pass-through FX track keeps them,
+    // whatever their kit bytes or an LFO say: the AMP envelope open, no portamento, no filter envelope. The LFO trig
+    // modes that wait for later trigs run as TRIG (TrackLfos::setContinuous). Off for the hardware's tracks (One, Six).
+    void setContinuous(bool on) { m_continuous = on; m_lfos.setContinuous(on); }
     uint32_t routingWord() const;                      // word 37 as sent (without the machine-independent one-shots)
     Machine machine() const { return m_machine; }
     void setParam(Page page, int param, int value);   // 0..127
@@ -71,6 +76,7 @@ private:
     void frame();        // frame start (first block of a group of three)
     void smoothing();    // slew + re-apply the LFOs
     void rebuild(bool trigPending);   // m_block = m_words + LFO modulation
+    uint32_t pageTarget(int w) const; // what page word w (AMP/FILT/EFX, 0-23) slews to
 
     std::array<int, 72> m_raw{};    // kit bytes: SYN 0-7 AMP 8-15 FILT 16-23 EFX 24-31 ... extras 64-68
     std::array<uint32_t, 52> m_words{};   // un-modulated block words (restored before the LFOs are re-applied)
@@ -88,6 +94,7 @@ private:
     Machine m_machine = Machine::GND;
     uint32_t m_routing = 0, m_outBuses = kRouteOutAB;
     bool m_lpKeyTrack = true, m_hpKeyTrack = true;   // the hardware's kit default (KIT > ASSIGN > KEY: LPF/HPF on)
+    bool m_continuous = false;
 };
 
 } // namespace mnm::host
