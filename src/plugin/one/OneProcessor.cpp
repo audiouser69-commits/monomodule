@@ -819,7 +819,7 @@ void MnmOneProcessor::processBlockBypassed(juce::AudioBuffer<float>& buffer, juc
 juce::AudioProcessorEditor* MnmOneProcessor::createEditor()
 {
     loadLcdArt(m_firmwarePath);   // before the editor measures any text
-    return new OneEditor(*this);
+    return new scale::ScaledEditor(*this, std::make_unique<OneEditor>(*this));   // resizable, the layout scaled as a whole
 }
 
 // State schema 4 (2026-09): every knob raw 0..127, machine = slot in uispec::kMachines, per-track ids

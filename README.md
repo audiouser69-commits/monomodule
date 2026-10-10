@@ -21,6 +21,10 @@ Monomachine's own sound engine inside an emulated Motorola DSP56300, so it match
 Every parameter is a raw 0-127 value, just like on the hardware, so a track's settings are the same as a kit track
 in a sysex dump. The plugins and the Library app share presets, kits and patterns.
 
+Every window can be resized from 50% to 200% with its proportions kept: drag the grip in a plugin's bottom-right
+corner, or the edges of the Library window. All the plugins and the Library app share one size setting: a new window
+opens at the size you last chose in any of them.
+
 ## Getting the OS file
 
 Monomodule needs **Monomachine OS 1.32B**, which Elektron provides as a free download:

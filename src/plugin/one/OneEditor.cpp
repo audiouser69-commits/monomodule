@@ -149,8 +149,9 @@ void KnobPage::showValueList(int k)
     for (int i = 0; i < n; ++i)
         if ((list ? spec::listRawMid(i, n) : i) <= p.maxRaw) m.addItem(i + 1, p.values[i], true, i == current);   // the entries the knob reaches
     const int x0 = (k % 4) * kCell, y0 = overhangRows() + kGridY + (k / 4) * kCell;
-    const auto anchor = (knobValueBox(x0, y0) * kScale) + getScreenPosition();
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetScreenArea(anchor).withMinimumWidth(kCell * kScale),
+    // the target component scales the menu with the window (ScaledEditor); the area places it under the value
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(this).withTargetScreenArea(localAreaToGlobal(knobValueBox(x0, y0) * kScale))
+                        .withMinimumWidth(kCell * kScale),
         [this, k, list, n](int r) {
             if (r <= 0) return;
             const int idx = r - 1;
@@ -495,6 +496,44 @@ void LcdToggle::paintButton(juce::Graphics& g, bool highlighted, bool)
 }
 
 // ---------------------------------------------------------------------------
+// ScaleGrip
+
+void ScaleGrip::paint(juce::Graphics& g)
+{
+    LcdCanvas cv(kLcdSize, kLcdSize);   // dots on every other pixel, filling the lower-right half
+    for (int y = 0; y < kLcdSize; y += 2)
+        for (int x = 0; x < kLcdSize; x += 2)
+            if (x + y >= kLcdSize - 1) cv.set(x, y);
+    cv.draw(g, 0, 0);
+}
+
+void ScaleGrip::mouseDown(const juce::MouseEvent& e)
+{
+    m_startScreen = e.getScreenPosition().toFloat();
+    if (auto* editor = findParentComponentOfClass<juce::AudioProcessorEditor>()) {
+        m_start = editor->getBounds();
+        if (auto* c = editor->getConstrainer()) c->resizeStart();
+    }
+}
+
+void ScaleGrip::mouseDrag(const juce::MouseEvent& e)
+{
+    auto* editor = findParentComponentOfClass<juce::AudioProcessorEditor>();
+    if (editor == nullptr) return;
+    // the drag in the editor's own units (its top-left stays put while it grows or shrinks)
+    const auto d = (editor->getLocalPoint(nullptr, e.getScreenPosition().toFloat()) - editor->getLocalPoint(nullptr, m_startScreen)).roundToInt();
+    const auto r = m_start.withSize(m_start.getWidth() + d.x, m_start.getHeight() + d.y);
+    if (auto* c = editor->getConstrainer()) c->setBoundsForComponent(editor, r, false, false, true, true);
+    else editor->setBounds(r);
+}
+
+void ScaleGrip::mouseUp(const juce::MouseEvent&)
+{
+    if (auto* editor = findParentComponentOfClass<juce::AudioProcessorEditor>())
+        if (auto* c = editor->getConstrainer()) c->resizeEnd();
+}
+
+// ---------------------------------------------------------------------------
 // TrackColumn (Six)
 
 TrackColumn::TrackColumn(juce::AudioProcessorValueTreeState& apvts, int numTracks) : m_apvts(apvts), m_numTracks(numTracks)
@@ -610,7 +649,7 @@ void TrackColumn::mouseMove(const juce::MouseEvent& e)
 // OneEditor
 
 OneEditor::OneEditor(MnmOneProcessor& p)
-    : AudioProcessorEditor(p), m_proc((skin::apply(skin::load()), p)),   // the skin first: m_lnf reads it when it is built
+    : m_proc((skin::apply(skin::load()), p)),   // the skin first: m_lnf reads it when it is built
       m_footerVersion(spec::kFontSmall4x5, kPluginVersion, 2),
       m_footerAlpha(spec::kFontSmall4x5, "BY SHNOLK", 2, false, juce::Justification::centredRight),
       m_bpmLabel(spec::kFontBold8, "BPM", kScale, false, juce::Justification::centredRight),
@@ -622,6 +661,7 @@ OneEditor::OneEditor(MnmOneProcessor& p)
     setLookAndFeel(&m_lnf);
     m_menuButton.onClick = [this] { showConfigMenu(); };
     addAndMakeVisible(m_menuButton);
+    addAndMakeVisible(m_grip);
     m_status.setFont(juce::Font(juce::FontOptions(12.0f)));
     m_fwPath.setFont(juce::Font(juce::FontOptions(12.0f)));
     addChildComponent(m_status);
@@ -1077,6 +1117,12 @@ void OneEditor::resized()
     auto r = getLocalBounds().reduced(10, 8);
     auto footer = r.removeFromBottom(16);
     m_footerVersion.setBounds(footer.removeFromLeft(200));
+    {   // the grip at the footer's right end; it takes presses out to the window's corner
+        const int gripPx = ScaleGrip::kLcdSize * kScale;
+        const juce::Point<int> at(footer.getRight() - gripPx, footer.getBottom() - gripPx);
+        m_grip.setBounds(at.x, at.y, getWidth() - at.x, getHeight() - at.y);
+        footer.removeFromRight(gripPx + 8);
+    }
     m_footerAlpha.setBounds(footer.removeFromRight(240));
 
     const int levW = 19 * kScale, top = r.getY();

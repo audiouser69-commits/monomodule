@@ -12,6 +12,7 @@
 #include "MachinePicker.h"
 #include "SkinDialog.h"
 #include "LibraryUi.h"
+#include "ScaledEditor.h"
 
 namespace mnm::plugin::one {
 
@@ -200,7 +201,25 @@ public:
     void paintButton(juce::Graphics&, bool highlighted, bool down) override;
 };
 
-class OneEditor : public juce::AudioProcessorEditor, public juce::FileDragAndDropTarget, private juce::Timer,
+// The corner grip, a dotted triangle of LCD pixels: dragging it resizes the plugin editor that shows this view scaled
+// (scale::ScaledEditor), through the editor's constrainer, so the aspect ratio stays locked. It works in every host and
+// format, including AUv2, where hosts do not resize plugin windows themselves.
+class ScaleGrip : public juce::Component {
+public:
+    static constexpr int kLcdSize = 5;
+    ScaleGrip() { setMouseCursor(juce::MouseCursor::BottomRightCornerResizeCursor); }
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+private:
+    juce::Rectangle<int> m_start;          // the editor's bounds when the drag began
+    juce::Point<float> m_startScreen;      // the mouse then (screen coordinates: the grip itself moves as the view scales)
+};
+
+// The editor's content, laid out at its base size; the plugins' editor shows it scaled (scale::ScaledEditor, see
+// MnmOneProcessor::createEditor and oneEditorOf).
+class OneEditor : public juce::Component, public juce::FileDragAndDropTarget, private juce::Timer,
                   private juce::AudioProcessorValueTreeState::Listener {
 public:
     explicit OneEditor(MnmOneProcessor&);
@@ -243,6 +262,7 @@ private:
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> m_bpmSyncAttach;
     juce::Label m_status, m_fwPath;
     LcdButton m_menuButton{"MENU"};
+    ScaleGrip m_grip;
     MachineBar m_machineBar;
     BpmReadout m_bpm;
     LevelColumn m_level;
@@ -279,5 +299,12 @@ private:
     juce::String m_artPath;   // the OS path the LCD artwork was last requested for
     int m_skinPollCountdown = 0;
 };
+
+// The One editor inside a plugin editor made by MnmOneProcessor::createEditor (dev tools), or null.
+inline OneEditor* oneEditorOf(juce::AudioProcessorEditor* editor)
+{
+    auto* scaled = dynamic_cast<scale::ScaledEditor*>(editor);
+    return scaled != nullptr ? dynamic_cast<OneEditor*>(&scaled->view()) : nullptr;
+}
 
 } // namespace mnm::plugin::one

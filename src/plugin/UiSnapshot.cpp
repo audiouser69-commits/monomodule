@@ -50,7 +50,7 @@ int main(int argc, char** argv)
         mnm::plugin::one::MnmOneProcessor proc(fxPlugin ? mnm::plugin::one::Variant::Fx : mnm::plugin::one::Variant::One);
         if (argc > 3) proc.setFirmwarePath(juce::String(argv[3]), false);
         std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
-        if (auto* led = dynamic_cast<mnm::plugin::one::OneEditor*>(ed.get())) {
+        if (auto* led = mnm::plugin::one::oneEditorOf(ed.get())) {
             if (const char* skinDlg = std::getenv("MNM_SNAPSHOT_SKIN_DIALOG"); skinDlg && *skinDlg) led->showSkinDialog();   // renders the CUSTOM skin dialog
             if (argc > 4)
                 for (int i = 0; i < mnm::uispec::kNumMachines; ++i)
@@ -330,7 +330,7 @@ int main(int argc, char** argv)
         if (auto* p = proc.apvts.getParameter(muteId(3))) p->setValueNotifyingHost(1.0f);   // track 4 muted
         proc.syncMachineSideEffects();
         std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
-        if (auto* led = dynamic_cast<OneEditor*>(ed.get())) { led->selectTrack(track); led->refresh(); }
+        if (auto* led = oneEditorOf(ed.get())) { led->selectTrack(track); led->refresh(); }
         save(*ed, juce::File(juce::String(argv[2])));
         ed.reset();
         return 0;
@@ -484,7 +484,7 @@ int main(int argc, char** argv)
         MnmOneProcessor proc(six ? 6 : 1);
         if (argc > 5) proc.setFirmwarePath(juce::String(argv[5]), false);
         std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
-        if (auto* led = dynamic_cast<OneEditor*>(ed.get())) {
+        if (auto* led = oneEditorOf(ed.get())) {
             LibraryBridge lib(proc, [led] { return led->selectedTrack(); });
             lib.refresh();
             lib.onLoaded = [led] { led->refresh(); };
@@ -548,7 +548,7 @@ int main(int argc, char** argv)
             MnmOneProcessor six(6);
             six.setFirmwarePath(juce::String(argv[2]), false);
             std::unique_ptr<juce::AudioProcessorEditor> ed(six.createEditor());
-            auto* led = dynamic_cast<OneEditor*>(ed.get());
+            auto* led = oneEditorOf(ed.get());
             juce::String err;
             ok = ok && led->isInterestedInFileDrag({kitFile.getFullPathName()}) && led->dropFile(kitFile, 0, err);
             for (int t = 0; t < 6; ++t) checkTrack(six, t, *kit, t, "SIX kit drop");
@@ -560,7 +560,7 @@ int main(int argc, char** argv)
             MnmOneProcessor one;
             one.setFirmwarePath(juce::String(argv[2]), false);
             std::unique_ptr<juce::AudioProcessorEditor> ed(one.createEditor());
-            auto* led = dynamic_cast<OneEditor*>(ed.get());
+            auto* led = oneEditorOf(ed.get());
             juce::String err;
             const bool refusesKit = !led->isInterestedInFileDrag({kitFile.getFullPathName()}) && !led->dropFile(kitFile, 0, err);
             std::printf("ONE refuses a kit: %s (%s)\n", refusesKit ? "OK" : "FAIL", err.toRawUTF8());

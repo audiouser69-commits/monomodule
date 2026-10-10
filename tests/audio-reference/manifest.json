@@ -1,0 +1,1234 @@
+{
+  "tool": "mnm-capture",
+  "created": "2026-10-06T01:26:27.939-05:00",
+  "note": "44.1 kHz references for the resampling rework (issue #3); 1.0.1 processor with the issue #5 FX key-tracking fix",
+  "gitHead": "214d4b95d6147fffdd99a02ca8d4dc3a45c83fd1",
+  "gitDiffShortstat": "100 files changed, 22 insertions(+), 2 deletions(-)",
+  "firmware": "Elektron_SFX6-60_OS1.32B.syx",
+  "firmwareSha256": "fe13c09f661cdba5fe57813240fa1574de1ee0a3ddd7047fc39d0318cba1a710",
+  "format": "WAV, 32-bit float; sha256 = hash of the interleaved float32 samples (the data chunk)",
+  "grid": "events on ticks of 2352 engine frames (a 1/32 note at 140.625 BPM, host transport at that tempo); 16 ticks of pre-roll rendered and dropped before sample 0",
+  "renders": [
+    {
+      "scenario": "one-sin-pitch",
+      "about": "GND SIN: four sustained notes (65 Hz to 1.76 kHz); pitch and clicks on pure tones",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-sin-pitch.44100.wav",
+      "channels": 2,
+      "frames": 216384,
+      "sha256": "7cf9a4a4e6cd885af442766d1595d28c204902b70ebe8826c6ff1e4eec6aa245",
+      "peakDbfs": "-14.34",
+      "rmsDbfs": "-19.26",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-saw-bass",
+      "about": "SWAVE SAW 16th bass line, second bar legato; resonant low-pass",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-saw-bass.44100.wav",
+      "channels": 2,
+      "frames": 188160,
+      "sha256": "35dd5808e2564422ff753578629593c2da00b6ad7d9ef502d29c30992fad82ef",
+      "peakDbfs": "-24.15",
+      "rmsDbfs": "-40.36",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-puls-lfo",
+      "about": "SWAVE PULS held notes; LFO1 on pulse width (free), LFO2 vibrato (trig)",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-puls-lfo.44100.wav",
+      "channels": 2,
+      "frames": 216384,
+      "sha256": "a0cb88661a15b75d46ecb41de135359e84b9087942c55b7c992a3cf03ee8e3d4",
+      "peakDbfs": "-25.36",
+      "rmsDbfs": "-38.37",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-nois-sweep",
+      "about": "GND NOIS through a narrow resonant band; FILT BASE swept up and down by CC",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-nois-sweep.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "783c013bff9f238fdca44c69dae6a4f896c6b12cd85a2afe03b970d230d8a5bd",
+      "peakDbfs": "-7.99",
+      "rmsDbfs": "-18.24",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-saw-reso",
+      "about": "SWAVE SAW held low A; FILT WDTH swept by CC at high LPQ",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-saw-reso.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "d9dfaba7d50e444e81fdc7da39f05586f0b8f0a20d9697501426697aea09d0b7",
+      "peakDbfs": "-18.11",
+      "rmsDbfs": "-26.76",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-fm-par",
+      "about": "FM+ PAR 8th-note plucks",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-fm-par.44100.wav",
+      "channels": 2,
+      "frames": 206976,
+      "sha256": "e698e35c192a1f0303fabce5ded03da994be0c02bed363191dfb03dc2e47eae8",
+      "peakDbfs": "-16.76",
+      "rmsDbfs": "-28.02",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-fm-dyn",
+      "about": "FM+ DYN 16th arpeggio",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-fm-dyn.44100.wav",
+      "channels": 2,
+      "frames": 188160,
+      "sha256": "78765f0330dfd65489b98f4360d11789e4f4e84f9f11ac77858ce706997588c6",
+      "peakDbfs": "-15.25",
+      "rmsDbfs": "-27.24",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-fm-stat",
+      "about": "FM+ STAT held notes",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-fm-stat.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "84c5696a8fe93d25dc03b9ec6b874e2837f8aa5304532c415181c500d761da8e",
+      "peakDbfs": "-17.69",
+      "rmsDbfs": "-26.91",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-ens",
+      "about": "SWAVE ENS held notes",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-ens.44100.wav",
+      "channels": 2,
+      "frames": 235200,
+      "sha256": "359824f1f52890cb741a0195ecf56a985dfa5db6564f170322b35c32205f6ed5",
+      "peakDbfs": "-20.81",
+      "rmsDbfs": "-33.61",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-sid",
+      "about": "SID 6581 16th riff",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-sid.44100.wav",
+      "channels": 2,
+      "frames": 188160,
+      "sha256": "92e40260f5f864864b658d38858607e99d48a85105e4582242cf01f6baac15f6",
+      "peakDbfs": "-19.25",
+      "rmsDbfs": "-24.47",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-vo6",
+      "about": "VO-6 notes",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-vo6.44100.wav",
+      "channels": 2,
+      "frames": 169344,
+      "sha256": "6dbfc03185a553b6b89f95d7185759d59797f7a489ff05530f25aae64fe8e0dc",
+      "peakDbfs": "-20.09",
+      "rmsDbfs": "-33.41",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-dpro-wave",
+      "about": "DPRO WAVE notes",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-dpro-wave.44100.wav",
+      "channels": 2,
+      "frames": 131712,
+      "sha256": "8a50ee53e96d7649fc3c09613574d8fea6d00a6abf0dcf6a9302429ddb42a654",
+      "peakDbfs": "-21.48",
+      "rmsDbfs": "-39.08",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-dpro-bbox",
+      "about": "DPRO BBOX hits",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-dpro-bbox.44100.wav",
+      "channels": 2,
+      "frames": 131712,
+      "sha256": "ded434c0bee42cd405cd542dac2706014a02a642b389d7b0612ba9a98242cde8",
+      "peakDbfs": "-6.89",
+      "rmsDbfs": "-26.81",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-dpro-ddrw",
+      "about": "DPRO DDRW notes",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-dpro-ddrw.44100.wav",
+      "channels": 2,
+      "frames": 131712,
+      "sha256": "f3a0151efbc3887d001d13d6bc0eb25c527a8e7446a0c15fd4909498287e02d8",
+      "peakDbfs": "-13.23",
+      "rmsDbfs": "-27.26",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-dpro-dens",
+      "about": "DPRO DENS notes",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-dpro-dens.44100.wav",
+      "channels": 2,
+      "frames": 131712,
+      "sha256": "c99fbe35fbf3e65fdddaa416461a020c21f53c397cff06210e5e4980a66aa725",
+      "peakDbfs": "-25.30",
+      "rmsDbfs": "-39.95",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-portamento",
+      "about": "SWAVE SAW legato slides (AMP PORT)",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-portamento.44100.wav",
+      "channels": 2,
+      "frames": 150528,
+      "sha256": "64e61c3d65decd81a52bd6e89ad62d7110acfc41b5595ed3f0c40c2febc818d5",
+      "peakDbfs": "-24.20",
+      "rmsDbfs": "-40.29",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-efx-delay",
+      "about": "SWAVE PULS plucks through the EFX page: delay with feedback, SRR, EQ",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-efx-delay.44100.wav",
+      "channels": 2,
+      "frames": 263424,
+      "sha256": "d26b3b7485f2af1a185f5197d8177c35dc9ec4ffa1ed69ab4f082bc2c0467009",
+      "peakDbfs": "-4.29",
+      "rmsDbfs": "-21.04",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-fast-trigs",
+      "about": "SWAVE SAW 1/32 notes back to back, a new pitch on every trig",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-fast-trigs.44100.wav",
+      "channels": 2,
+      "frames": 188160,
+      "sha256": "af5959d79b6fbf271f8c4f774fcbde30668315b33f62b6cced205099ff5ba98b",
+      "peakDbfs": "-24.45",
+      "rmsDbfs": "-46.04",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-dist-pan-level",
+      "about": "SWAVE SAW held note; AMP DIST, AMP PAN and track level automated by CC",
+      "plugin": "One",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-dist-pan-level.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "a89a5c604042dc098d27efd4b402c23d51dad80fa5bd0d4ce11887aa25812fa4",
+      "peakDbfs": "-17.10",
+      "rmsDbfs": "-31.49",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "one-sidechain-chorus",
+      "about": "One with the CHORUS machine on a multitone side-chain input",
+      "plugin": "One",
+      "input": "multitone",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "one-sidechain-chorus.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "27e7a7a058c6b42691c3f6c465e8076b5ca5b4809b6bcaea2af702dfaa2bcb1e",
+      "peakDbfs": "-18.70",
+      "rmsDbfs": "-32.44",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "six-tracks",
+      "about": "Six: SAW bass, FM+ PAR lead, NOIS hats, SIN, PULS stabs, ENS pad; one output per track",
+      "plugin": "Six",
+      "input": "none",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "six-tracks.44100.wav",
+      "channels": 12,
+      "frames": 188160,
+      "sha256": "16c7b360ca201c5e74c9924b6ebd45146a7d299054009d296d039a3d4c10e77b",
+      "peakDbfs": "-14.40",
+      "rmsDbfs": "-26.23",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "six-fx-buses",
+      "about": "Six routing: T1 SAW only feeds T2 REVERB (NEIBOR); T3 FM+ PAR and T4 DYNAMIX on the drums side-chain to bus CD; T5 PULS to bus AB, T6 FLANGER inserted on bus AB; outputs = the mix buses",
+      "plugin": "Six",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "six-fx-buses.44100.wav",
+      "channels": 12,
+      "frames": 225792,
+      "sha256": "b68297e34f804f2dc58480146b6afaa1032e301e85bc6b86ef54a44f623f9eea",
+      "peakDbfs": "-3.82",
+      "rmsDbfs": "-29.64",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "six-fx-tracks",
+      "about": "Six routing: T1 SAW only feeds T2 REVERB (NEIBOR); T3 FM+ PAR and T4 DYNAMIX on the drums side-chain to bus CD; T5 PULS to bus AB, T6 FLANGER inserted on bus AB; outputs = per track",
+      "plugin": "Six",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "six-fx-tracks.44100.wav",
+      "channels": 12,
+      "frames": 225792,
+      "sha256": "c2bcd44059f9b00d593bb2a98f9a317117c5c8e2704753accc0d0994fd8bf3c4",
+      "peakDbfs": "-4.58",
+      "rmsDbfs": "-29.55",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-thru-drums",
+      "about": "THRU on kick, sub bass and hats (issue #5: the low end must pass)",
+      "plugin": "FX",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-thru-drums.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "5c9a2ff0eedc16310b7c23a7ec8331f729f2123e9c4b46058039e515b4779309",
+      "peakDbfs": "-5.38",
+      "rmsDbfs": "-14.93",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-thru-sweep",
+      "about": "THRU on a 20 Hz-20 kHz sine sweep",
+      "plugin": "FX",
+      "input": "sweep",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-thru-sweep.44100.wav",
+      "channels": 2,
+      "frames": 301056,
+      "sha256": "a06436986f7e2496c2199068f397a0e59040eb6f33397d327ea5d6d3581a273f",
+      "peakDbfs": "-7.40",
+      "rmsDbfs": "-12.01",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-thru-multitone",
+      "about": "THRU on 40 steady sines, 30 Hz-16 kHz",
+      "plugin": "FX",
+      "input": "multitone",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-thru-multitone.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "8181a09c71025799d558197422091f59c1a6f83c69c404d011c1e011bb2f2027",
+      "peakDbfs": "-7.03",
+      "rmsDbfs": "-20.60",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-thru-efx",
+      "about": "THRU on drums through the EFX page: SRR, delay with feedback, EQ",
+      "plugin": "FX",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-thru-efx.44100.wav",
+      "channels": 2,
+      "frames": 263424,
+      "sha256": "f60cbf04b7c2c90c028e80163866ba691fb08290cee7310e00cd0ce06cfaf8c6",
+      "peakDbfs": "-2.70",
+      "rmsDbfs": "-12.12",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-reverb-drums",
+      "about": "REVERB on drums (the plugin's default machine)",
+      "plugin": "FX",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-reverb-drums.44100.wav",
+      "channels": 2,
+      "frames": 263424,
+      "sha256": "2c8c751fa5f768bab10c022833217e43a6101db8ec2e8733b1493ee78ae75a6f",
+      "peakDbfs": "-5.84",
+      "rmsDbfs": "-16.11",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-chorus-multitone",
+      "about": "CHORUS on 40 steady sines",
+      "plugin": "FX",
+      "input": "multitone",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-chorus-multitone.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "bbd56891b3768b70ba10c606fc78b636ee60df395464d93dd247d2add6f29fcc",
+      "peakDbfs": "-18.19",
+      "rmsDbfs": "-31.72",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-dynamix-drums",
+      "about": "DYNAMIX compressing drums",
+      "plugin": "FX",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-dynamix-drums.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "9547b51d44bbe820426c0a1b060684b39fc6a2ade58c2313fc1e458a4cceb89c",
+      "peakDbfs": "-4.92",
+      "rmsDbfs": "-16.01",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-ringmod-sweep",
+      "about": "RINGMOD on a sine sweep, fully wet",
+      "plugin": "FX",
+      "input": "sweep",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-ringmod-sweep.44100.wav",
+      "channels": 2,
+      "frames": 301056,
+      "sha256": "db563a1c1c395cbaa4587798545fb0d76f5ffcbea8bef2b9291fab90ff4fe814",
+      "peakDbfs": "-8.47",
+      "rmsDbfs": "-17.40",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-phaser-multitone",
+      "about": "PHASER on 40 steady sines",
+      "plugin": "FX",
+      "input": "multitone",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-phaser-multitone.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "77bb0df392fd19dc9bfe6fd8cba3cd86d9fa48c96967b716a2b5f70febb37cf9",
+      "peakDbfs": "-6.75",
+      "rmsDbfs": "-19.36",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    },
+    {
+      "scenario": "fx-flanger-drums",
+      "about": "FLANGER on drums",
+      "plugin": "FX",
+      "input": "drums",
+      "rate": 44100.0,
+      "block": "512",
+      "file": "fx-flanger-drums.44100.wav",
+      "channels": 2,
+      "frames": 225792,
+      "sha256": "85f5d66d05989ba0b7f93ed3fa9c319e6eebeece55c85b05251eb66d09e64879",
+      "peakDbfs": "-5.09",
+      "rmsDbfs": "-15.39",
+      "deterministic": true,
+      "otherBlocks": [
+        {
+          "block": "32",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "441",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "2048",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        },
+        {
+          "block": "var",
+          "identical": true,
+          "maxAbsDiff": 0.0
+        }
+      ]
+    }
+  ]
+}
