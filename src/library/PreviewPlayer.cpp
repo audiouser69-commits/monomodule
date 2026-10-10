@@ -1,7 +1,11 @@
 #include "PreviewPlayer.h"
+#if JUCE_MAC
+ #include <CoreAudio/CoreAudio.h>
+#endif
 #include <cstdlib>
 #include <algorithm>
 #include <cmath>
+#include <utility>
 
 namespace mnm::library {
 
@@ -266,10 +270,58 @@ bool PreviewVoice::process(float* outL, float* outR, int n, double sampleRate, b
 // ---------------------------------------------------------------------------
 // PreviewPlayer
 
-PreviewPlayer::PreviewPlayer() { m_renderer.onChange = [this] { triggerAsyncUpdate(); }; }
+#if JUCE_MAC
+// JUCE reports devices arriving and leaving, but not the system switching its output to another one. Core Audio
+// calls the listener on a thread of its own, and may still be inside it while the last player goes, so the listener
+// touches no player: the players are told on the message thread.
+struct PreviewPlayer::SystemOutputWatch {
+    static std::vector<PreviewPlayer*>& players() { static std::vector<PreviewPlayer*> p; return p; }   // message thread
+    static const AudioObjectPropertyAddress& address()
+    {
+        static const AudioObjectPropertyAddress a{kAudioHardwarePropertyDefaultOutputDevice, kAudioObjectPropertyScopeGlobal, kAudioObjectPropertyElementMain};
+        return a;
+    }
+    static OSStatus changed(AudioObjectID, UInt32, const AudioObjectPropertyAddress*, void*)
+    {
+        juce::MessageManager::callAsync([] {
+            for (auto* p : players()) {
+                // the new output may be a device that has only just arrived: the list first, as JUCE does for arrivals
+                if (auto* type = p->m_devices.getCurrentDeviceTypeObject()) type->scanForDevices();
+                p->outputsChanged();
+            }
+        });
+        return noErr;
+    }
+    static void add(PreviewPlayer* p)
+    {
+        if (players().empty()) AudioObjectAddPropertyListener(kAudioObjectSystemObject, &address(), changed, nullptr);
+        players().push_back(p);
+    }
+    static void remove(PreviewPlayer* p)
+    {
+        auto& v = players();
+        v.erase(std::remove(v.begin(), v.end(), p), v.end());
+        if (v.empty()) AudioObjectRemovePropertyListener(kAudioObjectSystemObject, &address(), changed, nullptr);
+    }
+};
+#endif
+
+PreviewPlayer::PreviewPlayer()
+{
+    m_renderer.onChange = [this] { triggerAsyncUpdate(); };
+    m_devices.addAudioCallback(this);
+    m_devices.addChangeListener(this);   // a device arrived or left (Windows: or the system switched its output)
+#if JUCE_MAC
+    SystemOutputWatch::add(this);
+#endif
+}
 
 PreviewPlayer::~PreviewPlayer()
 {
+#if JUCE_MAC
+    SystemOutputWatch::remove(this);
+#endif
+    m_devices.removeChangeListener(this);
     m_renderer.onChange = nullptr;
     cancelPendingUpdate();
     m_devices.removeAudioCallback(this);
@@ -278,21 +330,80 @@ PreviewPlayer::~PreviewPlayer()
 
 juce::String PreviewPlayer::status() const { const auto s = m_renderer.status(); return s.isNotEmpty() ? s : m_deviceStatus; }
 
-bool PreviewPlayer::ensureDevice()
+// The kind of device in use (Core Audio, Windows Audio, ALSA); the kinds are created and scanned at the first call.
+juce::AudioIODeviceType* PreviewPlayer::outputType()
 {
-    if (m_deviceReady) return true;
-    if (m_deviceTried) return false;
-    m_deviceTried = true;
-    const auto err = m_devices.initialiseWithDefaultDevices(0, 2);
-    if (err.isNotEmpty() || m_devices.getCurrentAudioDevice() == nullptr) { m_deviceStatus = "No audio output device: " + (err.isEmpty() ? juce::String("none found") : err); return false; }
-    m_devices.addAudioCallback(this);
-    m_deviceReady = true;
-    return true;
+    m_devices.getAvailableDeviceTypes();
+    return m_devices.getCurrentDeviceTypeObject();
+}
+
+juce::StringArray PreviewPlayer::outputDevices()
+{
+    auto* type = outputType();
+    return type ? type->getDeviceNames(false) : juce::StringArray();
+}
+
+juce::String PreviewPlayer::systemOutput()
+{
+    auto* type = outputType();
+    return type ? type->getDeviceNames(false)[type->getDefaultDeviceIndex(false)] : juce::String();
+}
+
+// The device the choice means now: the chosen one, or the system's output. A chosen device that is not there ends
+// the choice.
+juce::String PreviewPlayer::resolveOutput()
+{
+    if (m_outputChoice.isNotEmpty() && !outputDevices().contains(m_outputChoice)) {
+        const auto gone = std::exchange(m_outputChoice, {});
+        if (onOutputChoiceEnded) onOutputChoiceEnded(gone);
+    }
+    return m_outputChoice.isNotEmpty() ? m_outputChoice : systemOutput();
+}
+
+// Makes the device the choice means the open one (the open device is left alone when it is that one already).
+// False, with a status, when no output opens: the next preview tries again.
+bool PreviewPlayer::openOutput()
+{
+    auto open = [this](const juce::String& name) -> juce::String {
+        if (name.isEmpty()) return "none found";
+        if (m_devices.getCurrentAudioDevice() != nullptr && m_devices.getAudioDeviceSetup().outputDeviceName == name) return {};
+        juce::AudioDeviceManager::AudioDeviceSetup setup;   // rate and buffer size: the device's own
+        setup.outputDeviceName = name;
+        const auto err = m_devices.initialise(0, 2, nullptr, false, {}, &setup);
+        return err.isEmpty() && m_devices.getCurrentAudioDevice() == nullptr ? "cannot open " + name : err;
+    };
+    auto err = open(resolveOutput());
+    if (err.isNotEmpty() && m_outputChoice.isNotEmpty()) {   // the chosen device will not open: the system's output
+        const auto failed = std::exchange(m_outputChoice, {});
+        if (onOutputChoiceEnded) onOutputChoiceEnded(failed);
+        err = open(resolveOutput());
+    }
+    m_deviceReady = err.isEmpty();
+    m_deviceStatus = err.isEmpty() ? juce::String() : "No audio output device: " + err;
+    return m_deviceReady;
+}
+
+// A device arrived or left, the system switched its output, or the choice changed. An open output follows; a preview
+// left without one ends. Before the first preview nothing is opened, a chosen device is only looked for.
+void PreviewPlayer::outputsChanged()
+{
+    if (m_deviceReady) { if (!openOutput()) stop(); }
+    else if (m_outputChoice.isNotEmpty()) resolveOutput();
+    triggerAsyncUpdate();   // the status may have changed
+}
+
+void PreviewPlayer::setOutputChoice(const juce::String& device)
+{
+    m_outputChoice = device;
+    outputsChanged();
 }
 
 void PreviewPlayer::play(const juce::String& key, const std::function<preview::PreviewSpec()>& build, int stem)
 {
-    if (!m_renderer.hasFirmwarePath() || !ensureDevice()) { m_renderer.request(key, m_options.bpm, build); triggerAsyncUpdate(); return; }
+    // the output first: this is also where a switched system output is noticed on a platform that does not report it
+    const bool os = m_renderer.hasFirmwarePath();
+    if (os && !openOutput()) stop();   // no output: what was playing has none either
+    if (!os || !m_deviceReady) { m_renderer.request(key, m_options.bpm, build); triggerAsyncUpdate(); return; }
     auto audio = m_renderer.request(key, m_options.bpm, build);
     if (!audio) { triggerAsyncUpdate(); return; }
     m_audio = audio;

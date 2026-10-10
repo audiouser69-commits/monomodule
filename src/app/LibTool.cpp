@@ -12,8 +12,9 @@
 //   preview <file.syx> <out.wav> kit N [T] | pattern N [T] | track N T [--bpm B]   the audio preview of a kit (its best
 //                                pattern, or the demo pattern), a pattern, or a kit track (T = one track's own output);
 //                                the OS from $MNM_OS, the plugins' shared setting, or the build default
-//   playtest <file.syx> <kit N> <track 1-6>   plays that track's preset preview through the default output device
-//                                (the app's PreviewPlayer: render thread, cache, streaming) and reports its progress
+//   playtest <file.syx> <kit N> <track 1-6> [output device]   plays that track's preset preview through the system's
+//                                output (the app's PreviewPlayer: render thread, cache, streaming) and reports its
+//                                progress; with a device, the second run moves to it and back while it plays
 #include <juce_gui_basics/juce_gui_basics.h>
 #include "Store.h"
 #include "MidiExport.h"
@@ -161,6 +162,8 @@ static int preview(const juce::StringArray& args)
 }
 
 // Drives the PreviewPlayer as the app does: play, poll until playback ends, then play again (cached) and stop early.
+// The output: a chosen device that is not there must end the choice before the first run, and the second run moves
+// to the device named in args[4] and back to the system's output without the playback stalling.
 static int playtest(const juce::StringArray& args)
 {
     juce::ScopedJuceInitialiser_GUI gui;
@@ -176,13 +179,18 @@ static int playtest(const juce::StringArray& args)
     if (os.isEmpty() || !juce::File(os).existsAsFile()) os = MNM_OS_SYX;
     PreviewPlayer player;
     player.setFirmwarePath(os);
+    juce::String ended;
+    player.onOutputChoiceEnded = [&](const juce::String& device) { ended = device; std::printf("  output choice ended: \"%s\"\n", device.toRawUTF8()); };
+    std::printf("outputs: %s | system: \"%s\"\n", player.outputDevices().joinIntoString(", ").toRawUTF8(), player.systemOutput().toRawUTF8());
+    const juce::String missing = "a device that is not there", other = args.size() > 4 ? args[4] : juce::String();
+    player.setOutputChoice(missing);
+    bool ok = ended == missing && player.outputChoice().isEmpty();
     int changes = 0;
     player.onChange = [&] { ++changes; std::printf("  change %d: playing=%d rendering=%d status=\"%s\"\n", changes, player.isPlaying(), player.rendering(), player.status().toRawUTF8()); };
     const auto opt = player.options();
     auto build = [&] { return mnm::preview::presetPreview(kit->tracks[t], kit->lpKeyTracks(t), kit->hpKeyTracks(t), opt); };
     const auto t0 = juce::Time::getMillisecondCounterHiRes();
     int phase = 0; double startedAt = 0;
-    bool ok = true;
     player.play("test/" + juce::String(t), build, -1);
     std::printf("play: playing=%d\n", player.isPlaying());
     // pump the message loop (AsyncUpdater callbacks) and watch the player as the app's UI would
@@ -201,7 +209,19 @@ static int playtest(const juce::StringArray& args)
                 ok = ok && player.isPlaying() && !player.rendering();
             } else if (now > 15000) { std::printf("  timeout: still playing\n"); ok = false; break; }
         } else {
-            if (p > 0.2) { player.stop(); std::printf("  stopped at %.0f%%: playing=%d\n", 100 * p, player.isPlaying()); ok = ok && !player.isPlaying(); break; }
+            if (phase == 1 && p > 0.2 && other.isNotEmpty()) {   // onto the named device while it plays
+                player.setOutputChoice(other);
+                std::printf("  at %.0f%%: output \"%s\", playing=%d\n", 100 * p, player.outputChoice().toRawUTF8(), player.isPlaying());
+                ok = ok && player.outputChoice() == other && player.isPlaying();
+                phase = 2;
+            } else if (phase == 2 && p > 0.5) {   // it played on there: back to the system's output
+                player.setOutputChoice({});
+                std::printf("  at %.0f%%: output the system's, playing=%d\n", 100 * p, player.isPlaying());
+                ok = ok && player.isPlaying();
+                phase = 3;
+            } else if (p > (phase == 3 ? 0.8 : phase == 1 ? 0.2 : 2.0)) {
+                player.stop(); std::printf("  stopped at %.0f%%: playing=%d\n", 100 * p, player.isPlaying()); ok = ok && !player.isPlaying(); break;
+            }
             if (!player.isPlaying() || now > 30000) { std::printf("  second run ended unexpectedly\n"); ok = false; break; }
         }
     }
@@ -221,7 +241,7 @@ int main(int argc, char** argv)
     }
     const auto cmd = args[0];
     if (cmd == "preview" && args.size() >= 5) return preview(args);
-    if (cmd == "playtest" && args.size() == 4) return playtest(args);
+    if (cmd == "playtest" && (args.size() == 4 || args.size() == 5)) return playtest(args);
     if (cmd == "render" && args.size() >= 3) {
         // the app window offscreen, on a throw-away library holding this dump as a project (imported twice when
         // "history" is asked for, so the timeline has more than one version)

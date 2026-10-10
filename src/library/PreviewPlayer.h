@@ -5,7 +5,7 @@
 //   PreviewVoice     the audio-thread side: plays one rendered buffer into float channels at any sample rate. It
 //                    starts once a prefill is rendered and reads what the render thread has finished so far (the
 //                    render runs several times faster than real time), so a click sounds at once.
-//   PreviewPlayer    renderer + voice + the default output device: the Library app's player.
+//   PreviewPlayer    renderer + voice + the output device: the Library app's player.
 // The plugins own a renderer and a voice and mix the voice into their own output (a plugin has no device).
 #pragma once
 #include <juce_audio_devices/juce_audio_devices.h>
@@ -115,7 +115,7 @@ private:
     std::atomic<bool> m_finished{false}, m_loop{false};
 };
 
-class PreviewPlayer : private juce::AudioIODeviceCallback, private juce::AsyncUpdater {
+class PreviewPlayer : private juce::AudioIODeviceCallback, private juce::AsyncUpdater, private juce::ChangeListener {
 public:
     PreviewPlayer();
     ~PreviewPlayer() override;
@@ -140,18 +140,33 @@ public:
     juce::String status() const;      // the renderer's, or "no audio output device"
     std::function<void()> onChange;   // message thread: playback started, ended or failed, status changed
 
+    // Where the previews play. The choice is empty for the system's own output, followed whenever the system
+    // switches to another device, or names one device. A chosen device that is unplugged or will not open ends the
+    // choice: back to the system's output. The device opens at the first preview; a preview that is playing moves
+    // to the new device with it.
+    juce::StringArray outputDevices();     // the output devices there are now
+    juce::String systemOutput();           // the one the system plays through
+    const juce::String& outputChoice() const { return m_outputChoice; }
+    void setOutputChoice(const juce::String& device);
+    std::function<void(const juce::String& device)> onOutputChoiceEnded;   // message thread: the player ended the choice
+
 private:
     void audioDeviceIOCallbackWithContext(const float* const* in, int numIn, float* const* out, int numOut, int n, const juce::AudioIODeviceCallbackContext&) override;
     void audioDeviceAboutToStart(juce::AudioIODevice* device) override;
     void audioDeviceStopped() override {}
     void handleAsyncUpdate() override;
-    bool ensureDevice();
+    void changeListenerCallback(juce::ChangeBroadcaster*) override { outputsChanged(); }
+    struct SystemOutputWatch;   // macOS: hears the system switch its output
+    juce::AudioIODeviceType* outputType();
+    juce::String resolveOutput();
+    bool openOutput();
+    void outputsChanged();
 
     PreviewRenderer m_renderer;
     PreviewVoice m_voice;
     juce::AudioDeviceManager m_devices;
-    bool m_deviceReady = false, m_deviceTried = false;
-    juce::String m_playingKey, m_deviceStatus;
+    bool m_deviceReady = false;   // an output is open
+    juce::String m_playingKey, m_deviceStatus, m_outputChoice;
     int m_playingStem = -1;
     std::shared_ptr<PreviewAudio> m_audio;
     preview::PreviewOptions m_options;

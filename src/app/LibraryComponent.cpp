@@ -167,6 +167,12 @@ LibraryComponent::LibraryComponent(std::unique_ptr<Store> store, bool audio) : m
         opt.bpm = juce::jlimit(30.0, 300.0, mnm::plugin::loadSharedSetting("previewBpm", "120").getDoubleValue());
         m_player->setOptions(opt);
         m_player->onChange = [this] { if (!m_player->isPlaying()) m_playingTag.clear(); refreshPlaying(); repaint(); };
+        // MENU > Audio Output: System Setting (nothing stored), or a device until it is unplugged or will not open
+        m_player->onOutputChoiceEnded = [this](const juce::String& device) {
+            mnm::plugin::saveSharedSetting("libraryOutput", {});
+            toast(device + " is not available: Audio Output is back on System Setting");
+        };
+        m_player->setOutputChoice(mnm::plugin::loadSharedSetting("libraryOutput"));
         // the loop toggle beside the stop glyph, in every view (LibraryViews.h ui::Transport)
         ui::transport().looping = [this] { return m_player && m_player->loop(); };
         ui::transport().toggleLoop = [this] { if (m_player && m_player->isPlaying()) m_player->setLoop(!m_player->loop()); };
@@ -1279,6 +1285,18 @@ void LibraryComponent::showMenu()
     m.addSeparator();
     m.addItem(7, juce::String("Select Monomachine OS File...") + (m_osPath.isNotEmpty() ? "  (" + juce::File(m_osPath).getFileName() + ")" : juce::String()), m_player != nullptr);
     m.addItem(8, "Preview Tempo..." + (m_player ? "  (" + juce::String(m_player->options().bpm, 1) + " BPM)" : juce::String()), m_player != nullptr);
+    juce::StringArray outputs;
+    {   // where the previews play: the system's output, followed when the system switches it, or one device
+        juce::PopupMenu out;
+        if (m_player) {
+            outputs = m_player->outputDevices();
+            const auto choice = m_player->outputChoice(), sys = m_player->systemOutput();
+            out.addItem(100, "System Setting" + (sys.isNotEmpty() ? "  (" + sys + ")" : juce::String()), true, choice.isEmpty());
+            out.addSeparator();
+            for (int i = 0; i < outputs.size(); ++i) out.addItem(101 + i, outputs[i], true, choice == outputs[i]);
+        }
+        m.addSubMenu("Audio Output", out, m_player != nullptr);
+    }
     m.addItem(9, "Stop Preview", m_player && m_player->isPlaying());
     m.addSeparator();
     m.addItem(5, "Show Library Folder in Finder", m_store != nullptr);
@@ -1293,7 +1311,7 @@ void LibraryComponent::showMenu()
         m.addSubMenu("Skin", skins);
     }
     m.addItem(6, "About Monomodule Library...");
-    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_menu), [this](int r) {
+    m.showMenuAsync(juce::PopupMenu::Options().withTargetComponent(&m_menu), [this, outputs](int r) {
         const auto* pj = currentProject();
         switch (r) {
         case 1: importChooser(); break;
@@ -1311,7 +1329,12 @@ void LibraryComponent::showMenu()
         case 9: if (m_player) m_player->stop(); break;
         case 50: case 51: case 52: { const auto s = mnm::plugin::skin::presetSkin(mnm::plugin::skin::Preset(r - 50)); mnm::plugin::skin::apply(s); mnm::plugin::skin::save(s); skinChanged(); break; }
         case 53: m_skinDialog.setBounds(getLocalBounds()); m_skinDialog.open(); break;
-        default: break;
+        default:
+            if (r >= 100 && m_player) {
+                m_player->setOutputChoice(r == 100 ? juce::String() : outputs[r - 101]);
+                mnm::plugin::saveSharedSetting("libraryOutput", m_player->outputChoice());
+            }
+            break;
         }
     });
 }
