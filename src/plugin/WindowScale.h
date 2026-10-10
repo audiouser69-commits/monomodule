@@ -1,7 +1,8 @@
 // Window scaling (issue #7). Every Monomodule window (the plugin editors, the Library app) keeps the layout it was
 // designed at, its base size, and shows it scaled as a whole: the window resizes with its aspect ratio locked, so no
 // layout has to adapt to another shape. One scale is shared by all of them: the last scale a window was resized to is
-// kept in the shared settings (uiScale), and every window opens at it. The plugins' editor is in ScaledEditor.h.
+// kept in the shared settings (uiScale), and every window opens at it, or smaller where it would not fit the screen
+// (openScale). The plugins' editor is in ScaledEditor.h.
 #pragma once
 #include <juce_gui_basics/juce_gui_basics.h>
 #include <cmath>
@@ -22,12 +23,25 @@ inline void save(double s) { saveSharedSetting("uiScale", juce::String(juce::jli
 
 inline juce::Point<int> scaled(juce::Point<int> base, double s) { return {int(std::lround(base.x * s)), int(std::lround(base.y * s))}; }
 
-// s, or less where a window of `base` size would not fit the main screen's work area (never below kMin)
-inline double fitScreen(double s, juce::Point<int> base)
+// The work area of the screen a new window appears on: the one under the mouse (a host opens a plugin's window where
+// the user is working), else the main one.
+inline juce::Rectangle<int> screenArea(bool underMouse)
 {
-    if (const auto* d = juce::Desktop::getInstance().getDisplays().getPrimaryDisplay())
-        s = juce::jmin(s, 0.95 * d->userArea.getWidth() / base.x, 0.9 * d->userArea.getHeight() / base.y);
-    return juce::jmax(kMin, s);
+    const auto& displays = juce::Desktop::getInstance().getDisplays();
+    const auto* d = underMouse ? displays.getDisplayForPoint(juce::Desktop::getMousePosition()) : nullptr;
+    if (d == nullptr) d = displays.getPrimaryDisplay();
+    return d != nullptr ? d->userArea : juce::Rectangle<int>();
+}
+
+// The scale a window of `base` size opens at on a screen with work area `area`: s if it fits there with room left for
+// what surrounds it (a title bar, a host's plugin header), otherwise the largest scale that keeps it inside kOpenWithin
+// of the area in both directions. Never more than s, never below kMin. The result is not stored: on a larger screen
+// the window opens at s again.
+constexpr double kFitsWidth = 0.95, kFitsHeight = 0.85, kOpenWithin = 0.8;
+inline double openScale(double s, juce::Point<int> base, juce::Rectangle<int> area)
+{
+    if (area.isEmpty() || (base.x * s <= kFitsWidth * area.getWidth() && base.y * s <= kFitsHeight * area.getHeight())) return s;
+    return juce::jlimit(kMin, s, kOpenWithin * juce::jmin(area.getWidth() / double(base.x), area.getHeight() / double(base.y)));
 }
 
 // A window's size: its base size's aspect ratio, from kMin to kMax times the base size.

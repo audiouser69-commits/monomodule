@@ -23,7 +23,7 @@ in a sysex dump. The plugins and the Library app share presets, kits and pattern
 
 Every window can be resized from 50% to 200% with its proportions kept: drag the grip in a plugin's bottom-right
 corner, or the edges of the Library window. All the plugins and the Library app share one size setting: a new window
-opens at the size you last chose in any of them.
+opens at the size you last chose in any of them, or smaller on a screen it would not fit.
 
 ## Getting the OS file
 

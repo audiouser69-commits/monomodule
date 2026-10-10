@@ -16,7 +16,7 @@ public:
         setUsingNativeTitleBar(true);
         auto holder = std::make_unique<scale::ScaledHolder>(std::make_unique<LibraryComponent>(std::make_unique<mnm::library::Store>()));
         const auto base = holder->base();
-        const auto size = scale::scaled(base, scale::fitScreen(scale::load(), base));
+        const auto size = scale::scaled(base, scale::openScale(scale::load(), base, scale::screenArea(false)));
         holder->setSize(size.x, size.y);
         m_aspect.setBase(base);
         setConstrainer(&m_constrainer);

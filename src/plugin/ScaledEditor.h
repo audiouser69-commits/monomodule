@@ -21,7 +21,7 @@ public:
             const auto size = scaled(m_holder.base(), s);
             setSize(size.x, size.y);
         };
-        const auto size = scaled(m_holder.base(), fitScreen(load(), m_holder.base()));
+        const auto size = scaled(m_holder.base(), openScale(load(), m_holder.base(), screenArea(true)));
         setSize(size.x, size.y);
     }
     juce::Component& view() const { return m_holder.view(); }
