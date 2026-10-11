@@ -76,11 +76,32 @@ juce_add_plugin(MnmFx
   HARDENED_RUNTIME_OPTIONS ${MNM_HARDENED_OPTS}
   MICROPHONE_PERMISSION_ENABLED FALSE)
 
-set(MNM_ONE_SOURCES one/OneProcessor.cpp one/OneEditor.cpp one/MachinePicker.cpp one/LibraryUi.cpp one/Lcd.cpp one/SkinDialog.cpp one/SpecData.cpp one/RomArt.cpp)
+# Monomodule Euclid: Six with a generative Euclidean sequencer playing its six tracks (notes and p-locks), in sync with
+# the host transport, and a SEQUENCER tab beside Six's editor (one/EuclidEditor.*, core gen/Generative.*).
+juce_add_plugin(MnmEuclid
+  PRODUCT_NAME "Monomodule Euclid"
+  COMPANY_NAME "Shnolk"
+  BUNDLE_ID "world.shnolk.mnm.euclid"
+  PLUGIN_MANUFACTURER_CODE Shnk
+  PLUGIN_CODE Mnm9
+  FORMATS AU VST3 Standalone
+  IS_SYNTH TRUE
+  NEEDS_MIDI_INPUT TRUE
+  NEEDS_MIDI_OUTPUT FALSE
+  IS_MIDI_EFFECT FALSE
+  EDITOR_WANTS_KEYBOARD_FOCUS FALSE
+  COPY_PLUGIN_AFTER_BUILD ${MNM_COPY_PLUGINS}
+  AU_MAIN_TYPE kAudioUnitType_MusicDevice
+  HARDENED_RUNTIME_ENABLED TRUE
+  HARDENED_RUNTIME_OPTIONS ${MNM_HARDENED_OPTS}
+  MICROPHONE_PERMISSION_ENABLED FALSE)
+
+set(MNM_ONE_SOURCES one/OneProcessor.cpp one/EuclidEditor.cpp one/OneEditor.cpp one/MachinePicker.cpp one/LibraryUi.cpp one/Lcd.cpp one/SkinDialog.cpp one/SpecData.cpp one/RomArt.cpp)
 target_sources(MnmOne PRIVATE one/OneFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
 target_sources(MnmSix PRIVATE one/SixFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
 target_sources(MnmFx PRIVATE one/FxFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
-foreach(t MnmOne MnmSix MnmFx)
+target_sources(MnmEuclid PRIVATE one/EuclidFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
+foreach(t MnmOne MnmSix MnmFx MnmEuclid)
   target_include_directories(${t} PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
   target_compile_definitions(${t} PUBLIC
     JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0 JUCE_VST3_CAN_REPLACE_VST2=0

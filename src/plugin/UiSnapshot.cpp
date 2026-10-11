@@ -11,6 +11,7 @@
 #include "Overlays.h"
 #include "one/OneProcessor.h"
 #include "one/OneEditor.h"
+#include "one/EuclidEditor.h"
 #include "Transfer.h"
 #include "Store.h"
 #include "MidiExport.h"
@@ -61,6 +62,34 @@ int main(int argc, char** argv)
             if (juce::String(argv[1]).endsWith("-picker")) led->showMachinePicker();
         }
         save(*ed, juce::File(juce::String(argv[2])));
+        ed.reset();
+        return 0;
+    }
+    if (argc >= 3 && (juce::String(argv[1]) == "--euclid" || juce::String(argv[1]) == "--euclid-synth")) {
+        // --euclid <out.png> [os.syx]: Monomodule Euclid, SEQUENCER tab, after 2.3 bars of play (track 3 selected);
+        // --euclid-synth: the SYNTH tab
+        using namespace mnm::plugin::one;
+        MnmOneProcessor proc(Variant::Euclid);
+        if (argc > 3) proc.setFirmwarePath(juce::String(argv[3]), false);
+        proc.setStepMask(1, 0x14);
+        euclid::Bindings b;
+        b.bind(proc.apvts);
+        mnm::gen::GlobalParams gp;
+        std::array<std::atomic<uint32_t>, mnm::gen::kTracks> masks{};
+        for (int t = 0; t < mnm::gen::kTracks; ++t) masks[size_t(t)].store(proc.stepMask(t));
+        b.read(gp, masks);
+        mnm::gen::Transport tr; tr.playing = true; tr.bpm = 120; tr.sampleRate = 48000; tr.numSamples = 480;
+        for (double ppq = 0; ppq < 9.3; ppq += 480 * 120.0 / 60.0 / 48000.0) { tr.ppq = ppq; proc.generator()->process(tr, gp); }
+        std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
+        auto* sv = dynamic_cast<scale::ScaledEditor*>(ed.get());
+        auto* view = sv ? dynamic_cast<EuclidView*>(&sv->view()) : nullptr;
+        if (view) {
+            view->synthEditor().refresh();
+            if (juce::String(argv[1]) == "--euclid-synth") view->showSequencer(false);
+            else { view->seqPage().setTrack(2); view->seqPage().tick(); }
+            ed->setSize(view->getWidth(), view->getHeight());
+            save(*view, juce::File(juce::String(argv[2])));
+        }
         ed.reset();
         return 0;
     }

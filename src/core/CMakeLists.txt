@@ -14,6 +14,7 @@ add_library(mnmcore STATIC
   preview/Sequencer.cpp
   preview/KitRenderer.cpp
   preview/Preview.cpp
+  gen/Generative.cpp
 )
 target_include_directories(mnmcore PUBLIC ${CMAKE_CURRENT_SOURCE_DIR})
 target_link_libraries(mnmcore PUBLIC dsp56kEmu)

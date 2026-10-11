@@ -28,7 +28,7 @@ set(STAGE "${OUT_DIR}/${NAME}")
 file(REMOVE_RECURSE "${STAGE}")
 file(MAKE_DIRECTORY "${STAGE}/VST3")
 
-set(PLUGINS "One:MnmOne" "Six:MnmSix" "FX:MnmFx")
+set(PLUGINS "One:MnmOne" "Six:MnmSix" "FX:MnmFx" "Euclid:MnmEuclid")
 foreach(p ${PLUGINS})
   string(REPLACE ":" ";" p "${p}")
   list(GET p 0 short)

@@ -46,7 +46,7 @@ public:
 
     juce::AudioProcessorEditor* createEditor() override;
     bool hasEditor() const override { return true; }
-    const juce::String getName() const override { return m_variant == Variant::Fx ? "Monomodule FX" : m_numTracks > 1 ? "Monomodule Six" : "Monomodule One"; }
+    const juce::String getName() const override { return m_variant == Variant::Fx ? "Monomodule FX" : m_variant == Variant::Euclid ? "Monomodule Euclid" : m_numTracks > 1 ? "Monomodule Six" : "Monomodule One"; }
     bool acceptsMidi() const override { return m_variant != Variant::Fx; }
     bool producesMidi() const override { return false; }
     bool isMidiEffect() const override { return false; }
@@ -62,6 +62,16 @@ public:
     int numTracks() const { return m_numTracks; }
     Variant variant() const { return m_variant; }
     bool isEffect() const { return m_variant == Variant::Fx; }
+    bool isEuclid() const { return m_variant == Variant::Euclid; }
+
+    // Monomodule Euclid: the generative sequencer (null on the other plugins). It plays the six tracks with notes and
+    // p-locks (a lock holds a knob at a value until the track's next trig, like the hardware's parameter locks),
+    // following the host transport (or its own clock: SEQ RUN WITHOUT HOST, and in the standalone app).
+    // Notes on MIDI channel 16 transpose every melodic track (latched; C4 = no transposition).
+    mnm::gen::Generator* generator() const { return m_gen.get(); }
+    uint32_t stepMask(int t) const { return m_stepMask[size_t(t)].load(); }   // bit n = step n muted by hand
+    void setStepMask(int t, uint32_t mask) { m_stepMask[size_t(t)].store(mask); }
+    int lockValue(int t, int target) const { return m_tracks[size_t(t)]->lock[size_t(target)].load(); }   // -1 = no lock
     float trackPeak(int t) const { return m_tracks[size_t(t)]->peak.load(); }   // linear, pre-mute, decays between UI polls
     float outputPeak() const { return trackPeak(0); }
     float hostBpm() const { return m_hostBpm.load(); }   // last tempo reported by the host transport (120 without one)
@@ -141,6 +151,8 @@ private:
         std::vector<float> inL, inR;       // silence for an FX machine on track 1 reading NEIBOR
         std::array<dsp::History, 2> hist;  // the render's history, for the output converter (host rate != 44.1 kHz)
         std::atomic<float> peak{0.0f};
+        // Euclid p-locks (audio thread; read by the editor): page * 8 + knob -> raw value, -1 = the parameter's own
+        std::array<std::atomic<int>, mnm::gen::kLockTargets> lock{};
         // Per-machine SYN memory (state, not parameters): the eight values of every machine this track
         // has visited, and the machine slot whose values the SYN parameters currently hold.
         std::array<std::array<uint8_t, 8>, spec::kNumMachines> shadow{};
@@ -163,6 +175,8 @@ private:
     void handleMidi(Track&, const juce::MidiMessage&);
     void pushParamFromCC(Track&, host::Page page, int k, int value);
     void processChunk(juce::AudioBuffer<float>&, int offset, int n);
+    void runGenerator(const juce::Optional<juce::AudioPlayHead::PositionInfo>& pos, const juce::MidiBuffer& midi, int n);
+    static bool isLockSysex(const juce::MidiMessage& m);
     void fillSideChain(int offset, int n, int64_t firstFrame, int nEngine);
     void renderTrack(Track&, int64_t firstFrame, int nEngine);
     void writeOutputs(juce::AudioBuffer<float>&, int offset, int n, int nEngine);
@@ -229,6 +243,13 @@ private:
     mnm::library::PreviewVoice m_previewVoice;
     std::shared_ptr<mnm::library::PreviewAudio> m_previewAudio;
     juce::String m_previewKey;
+
+    // Monomodule Euclid
+    std::unique_ptr<mnm::gen::Generator> m_gen;
+    euclid::Bindings m_seqBind;
+    mnm::gen::GlobalParams m_genParams;
+    std::array<std::atomic<uint32_t>, mnm::gen::kTracks> m_stepMask{};
+    double m_freePpq = 0.0;   // the sequencer's own clock (no host transport)
 };
 
 } // namespace mnm::plugin::one

@@ -16,6 +16,7 @@ Monomachine's own sound engine inside an emulated Motorola DSP56300, so it match
 | **Monomodule One** | Instrument (AU, VST3, standalone) | One Monomachine track. Plays all 22 machines: GND, SWAVE, SID, DPRO, FM+, VO-6 and the FX machines. The editor recreates the hardware's LCD pages, with the SYN, AMP, FILT and EFX pages plus three LFOs. FX machines process the side-chain input. |
 | **Monomodule Six** | Instrument (AU, VST3, standalone) | All six tracks in one instance. MIDI channels 1-6 play tracks 1-6. It has six stereo outputs, and each track has its own routing: OUT BUS AB/CD/EF, and for FX machines an input of NEIBOR, INP A/B/AB or BUS AB/CD/EF. |
 | **Monomodule FX** | Effect (AU, VST3) | The FX machines as an audio effect: THRU, REVERB, CHORUS, DYNAMIX, RINGMOD, PHASER and FLANGER. It processes its input continuously, so the controls that only respond to trigs on the hardware are hidden and held open: the AMP envelope (ATK, HOLD, DEC, REL), portamento and the filter envelope. Presets keep their values, and One and Six still use them. |
+| **Monomodule Euclid** | Instrument (AU, VST3, standalone) | Six with a generative Euclidean sequencer that plays its six tracks in sync with the host. See [Monomodule Euclid](#monomodule-euclid). |
 | **Monomodule Library** | Standalone app | A library for Monomachine sysex dumps. It imports `.syx` files without losing any data, keeps a version history for each Monomachine you own, and lets you browse presets, kits and patterns with audio previews. The previews play through the system's audio output and follow it when you switch it; **Audio Output** in the menu selects another device. You can drag items into the plugins or your DAW. |
 
 Every parameter is a raw 0-127 value, just like on the hardware, so a track's settings are the same as a kit track
@@ -48,6 +49,38 @@ Pre-built downloads for macOS, Windows and Linux are on the project's **Releases
 | Linux (x64) | Copy the `.vst3` folders to `~/.vst3/` | `~/.local/bin/Monomodule Library` |
 
 The plugin's library panel opens the Library app from these locations.
+
+## Monomodule Euclid
+
+Monomodule Six plus a generative sequencer, in one plugin: a **SEQUENCER** tab beside the usual pages (**SYNTH**).
+It plays the six tracks with notes and **p-locks** (a lock holds a knob at a value until the track's next trig, as
+on the hardware), locked to the host transport sample by sample. Every setting is a host parameter, so it can be
+automated. Built for evolving, polymetric, glitchy textures in the spirit of the Warp catalogue, but every note stays
+inside a range and a scale, so it keeps sounding musical.
+
+Per track:
+
+* **RHYTHM**: a Euclidean pattern (STEP 1-32, PULS, ROT) at its own **RATE**: straight, triplet and odd tuplets
+  (1/20, 1/28, 1/14, 1/10), so tracks drift against each other. **ACNT** is a second Euclidean pattern on the same
+  steps (accents). **CHNC** is the trig probability, **COND** an Elektron-style trig condition (1:2 ... 4:4, PRE, NEI,
+  1ST and their negations), **GATE** the note length. Click a step in the strip to mute it by hand.
+* **MOTION**: **RTCH** ratchet chance, **RMAX** up to 8 repeats inside the step, **SHAP** FLAT / ACCEL / DECEL
+  (bouncing ball) / RANDOM, **RPCH** scale degrees added per repeat; **SWNG** and **DRFT** (random timing delay).
+* **PITCH**: notes always fall in **LOW-HIGH** and in the **SCALE** (the track's own, or the global one). **MODE**:
+  FIXED (drums: always LOW), RANDOM, WALK (brownian, JUMP = max step), TURING (a shift register that mutates with
+  MUT), CYCLE (a melody of LEN notes that phases against the rhythm). **HOLD** repeats the previous note.
+* **LANES**: four p-lock lanes. Each targets any SYN, AMP, FILT or EFX knob of the track's machine and moves it inside
+  a MIN-MAX window on every trig: RANDOM, CYCLE, RAMP UP/DN, TRIANGLE, SINE, ACCENT, PITCH (follows the note), TURING;
+  **CH** is the chance that a trig gets the lock.
+
+Global (tab bar): **SEED** (DICE picks a new one), **LOOP** (OFF, or the texture repeats every 1-32 bars),
+**EVOLVE** (each step of the loop mutates with this chance every time round), **ROOT**, **SCALE**, and **FREE** (run on
+the plugin's own clock while the host is stopped; the standalone app always does). Notes on **MIDI channel 16**
+transpose every melodic track (latched; C4 = no transposition). Live MIDI on channels 1-6 still plays the tracks.
+
+Every random decision is a hash of the seed and the song position, so the same position always plays the same thing:
+a bounce sounds like the playback. The default kit is a ready texture: DPRO BBOX kick and hits, FM+ DYN, a SID bass,
+SWAVE chords and a REVERB on track 6 (fed by track 5).
 
 ## Building from source
 

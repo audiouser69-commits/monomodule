@@ -3,6 +3,7 @@
 add_executable(mnm-tests
   mini_test.cpp
   test_engine.cpp
+  test_generative.cpp
   test_hostmodel.cpp
   test_lfo.cpp
   test_preview.cpp

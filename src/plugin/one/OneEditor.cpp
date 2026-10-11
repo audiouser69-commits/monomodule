@@ -655,7 +655,7 @@ OneEditor::OneEditor(MnmOneProcessor& p)
       m_bpmLabel(spec::kFontBold8, "BPM", kScale, false, juce::Justification::centredRight),
       m_syn(p.apvts, "SYNTHESIS"), m_amp(p.apvts, p.isEffect() ? "FILT/AMP" : "AMPLIFICATION"), m_filt(p.apvts, "FILTER"), m_efx(p.apvts, "EFFECTS"),
       m_lfo1(p.apvts, "LFO1"), m_lfo23(p.apvts, "LFO2"),
-      m_missingOs([this] { openOsChooser(); }), m_about(p.isEffect() ? kFxTitle : p.numTracks() > 1 ? kSixTitle : kOneTitle),
+      m_missingOs([this] { openOsChooser(); }), m_about(p.isEffect() ? kFxTitle : p.isEuclid() ? kEuclidTitle : p.numTracks() > 1 ? kSixTitle : kOneTitle),
       m_lib(p, [this] { return m_track; }), m_strip(p.numTracks() > 1), m_drop(m_lib), m_libPanel(m_lib), m_saveDialog(m_lib)
 {
     setLookAndFeel(&m_lnf);

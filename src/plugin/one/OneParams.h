@@ -12,6 +12,7 @@
 #include <cmath>
 #include "host/Machines.h"
 #include "Lcd.h"
+#include "EuclidParams.h"
 
 namespace mnm::plugin::one { using host::FxInput; using host::kFxInputNames; }
 
@@ -20,9 +21,11 @@ namespace mnm::plugin::one {
 constexpr const char* kOneTitle = "MONOMODULE ONE";
 constexpr const char* kSixTitle = "MONOMODULE SIX";
 constexpr const char* kFxTitle = "MONOMODULE FX";
+constexpr const char* kEuclidTitle = "MONOMODULE EUCLID";
 
-enum class Variant { One, Six, Fx };
-inline int numTracksOf(Variant v) { return v == Variant::Six ? 6 : 1; }
+// Euclid: Six with the generative sequencer (EuclidParams.h, gen/Generative.h) driving its six tracks.
+enum class Variant { One, Six, Fx, Euclid };
+inline int numTracksOf(Variant v) { return v == Variant::Six || v == Variant::Euclid ? 6 : 1; }
 constexpr int kMaxTracks = 6;
 
 // Routing (Six; KIT > EDIT on the hardware): per track the OUT BUS set (AB/CD/EF) and, for FX machines, the
@@ -66,6 +69,13 @@ inline int defaultMachineSlot() { return machineSlot(host::Machine::SAW); }   //
 inline int firstFxSlot() { for (int i = 0; i < spec::kNumMachines; ++i) if (spec::kMachines[i].isFx) return i; return 0; }
 inline int lastFxSlot() { int l = firstFxSlot(); for (int i = l; i < spec::kNumMachines && spec::kMachines[i].isFx; ++i) l = i; return l; }
 inline int defaultMachineSlot(Variant v) { return v == Variant::Fx ? machineSlot(host::Machine::REVERB) : defaultMachineSlot(); }
+// Euclid starts from its own kit (EuclidParams.h), one machine per track
+inline int defaultMachineSlot(Variant v, int t)
+{
+    if (v != Variant::Euclid) return defaultMachineSlot(v);
+    const int s = machineSlot(euclid::defaults()[size_t(juce::jlimit(0, 5, t))].machine);
+    return s >= 0 ? s : defaultMachineSlot();
+}
 // Every machine has an engine path since v0.7.6; `supported` stays for a machine the DSP path cannot play.
 inline bool machineSupported(int slot) { return spec::kMachines[juce::jlimit(0, spec::kNumMachines - 1, slot)].supported; }
 
@@ -133,7 +143,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(Variant 
                     juce::AudioParameterIntAttributes().withStringFromValueFunction([](int v, int) { return juce::String(spec::kMachines[juce::jlimit(0, spec::kNumMachines - 1, v)].displayName); })
                         .withValueFromStringFunction([](const juce::String& s) { for (int i = 0; i < spec::kNumMachines; ++i) if (s == spec::kMachines[i].displayName) return i; return firstFxSlot(); })));
             else
-                g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{machineId(t), 1}, prefix + "Machine", names, defaultMachineSlot()));
+                g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{machineId(t), 1}, prefix + "Machine", names, defaultMachineSlot(variant, t)));
             g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{levelId(t), 1}, prefix + "LEVEL", 0, 127, 100));
             g->addChild(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{muteId(t), 1}, prefix + "MUTE", false));
             // KIT > ASSIGN > KEY: the filters track the note pitch unless switched off (the kit default is on)
@@ -152,7 +162,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(Variant 
         }
         {
             auto g = std::make_unique<Group>(trackPrefix(t) + "syn", prefix + "SYNTHESIS", " ");
-            for (int k = 0; k < 8; ++k) g->addChild(std::make_unique<SynParam>(t, k, defaultMachineSlot(variant), prefix));
+            for (int k = 0; k < 8; ++k) g->addChild(std::make_unique<SynParam>(t, k, defaultMachineSlot(variant, t), prefix));
             groups.push_back(std::move(g));
         }
         for (int pi = 1; pi < 4; ++pi) {
@@ -161,7 +171,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(Variant 
             auto g = std::make_unique<Group>(trackPrefix(t) + pg.name, prefix + pg.name, " ");
             for (int k = 0; k < 8; ++k) {
                 auto p = sharedPageParam(page, k);
-                if (effect && page == Page::AMP) p.defaultRaw = spec::kAmpDefaultsFx[k];   // an FX track holds its envelope open
+                if ((effect || spec::kMachines[defaultMachineSlot(variant, t)].isFx) && page == Page::AMP) p.defaultRaw = spec::kAmpDefaultsFx[k];   // an FX track holds its envelope open
                 g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{pageId(t, page, k), 1},
                     prefix + juce::String(pg.name) + " " + p.label, 0, 127, int(p.defaultRaw), specDisplay(p)));
             }
@@ -192,6 +202,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(Variant 
     // when sync is off (drag or type it in the header).
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{bpmSyncId(), 1}, "BPM sync to host", true));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{bpmId(), 1}, "BPM", 30.0f, 300.0f, 120.0f));
+    if (variant == Variant::Euclid) euclid::addLayout(layout);
     return layout;
 }
 

@@ -1,5 +1,6 @@
 #include "OneProcessor.h"
 #include "OneEditor.h"
+#include "EuclidEditor.h"
 #include "SharedSettings.h"
 #include "Store.h"
 #include <cmath>
@@ -49,13 +50,19 @@ MnmOneProcessor::MnmOneProcessor(Variant variant)
             tr->input = apvts.getRawParameterValue(inputId(t));
             for (int b = 0; b < 3; ++b) tr->outBus[b] = apvts.getRawParameterValue(outBusId(t, b));
         }
-        tr->shadowSlot = defaultMachineSlot(m_variant);
+        tr->shadowSlot = defaultMachineSlot(m_variant, t);
+        for (auto& l : tr->lock) l.store(-1);
         apvts.addParameterListener(machineId(t), this);
         m_tracks.push_back(std::move(tr));
     }
     m_bpm = apvts.getRawParameterValue(bpmId());
     m_bpmSync = apvts.getRawParameterValue(bpmSyncId());
     m_outputMode = m_numTracks > 1 ? apvts.getRawParameterValue(outputModeId()) : nullptr;
+    if (isEuclid()) {
+        m_gen = std::make_unique<mnm::gen::Generator>();
+        m_seqBind.bind(apvts);
+        for (auto& m : m_stepMask) m.store(0);
+    }
     m_firmwarePath = loadSharedOsPath();   // never a compiled-in path: fresh installs start unconfigured
     m_midi.reserve(kMaxPendingMidi);       // the audio thread only fills it up to this capacity
     loadEngine();
@@ -134,7 +141,8 @@ void MnmOneProcessor::initPreset()
 {
     // Forget every machine's remembered SYN values first, so the reset below lands on hardware defaults and
     // the side-effect pass has nothing to restore.
-    for (auto& tr : m_tracks) { tr->visited.fill(false); tr->shadowSlot = defaultMachineSlot(m_variant); }
+    for (auto& tr : m_tracks) { tr->visited.fill(false); tr->shadowSlot = defaultMachineSlot(m_variant, tr->index); }
+    for (auto& m : m_stepMask) m.store(0);
     libraryFromTree({});
     for (auto* p : getParameters())   // the machine parameter precedes its SYN knobs, whose defaults follow it
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p)) {
@@ -525,9 +533,11 @@ void MnmOneProcessor::applyParametersToHost(Track& tr)
     h.setOutBuses(uint32_t(outBusMask(tr)));
     h.setRouting(fx ? dspInputBits(fxInputOf(tr)) : 0u);
     h.setKeyTracking(keyTracks(tr.lpKeyTrack), keyTracks(tr.hpKeyTrack));
-    for (int k = 0; k < 8; ++k) h.setParam(Page::SYN, k, int(tr.syn[k]->load()));   // raw kit bytes, as stored
+    // raw kit bytes, as stored, unless the sequencer holds a p-lock on the knob (Euclid)
+    auto value = [&](int p, int k, const std::atomic<float>* param) { const int l = tr.lock[size_t(p * 8 + k)].load(std::memory_order_relaxed); return l >= 0 ? l : int(param->load()); };
+    for (int k = 0; k < 8; ++k) h.setParam(Page::SYN, k, value(0, k, tr.syn[k]));
     for (int p = 1; p < 4; ++p)
-        for (int k = 0; k < 8; ++k) h.setParam(Page(p), k, int(tr.pages[p][k]->load()));
+        for (int k = 0; k < 8; ++k) h.setParam(Page(p), k, value(p, k, tr.pages[p][k]));
     for (int l = 0; l < spec::kNumLfos; ++l)
         for (int k = 0; k < 8; ++k) h.setLfoParam(l, k, int(tr.lfo[l][k]->load()));   // raw kit bytes; the host computes the LFOs
     h.setLevel(int(tr.level->load()));
@@ -550,6 +560,14 @@ void MnmOneProcessor::pushParamFromCC(Track& tr, Page page, int k, int value)
 
 void MnmOneProcessor::handleMidi(Track& tr, const juce::MidiMessage& m)
 {
+    if (m.isSysEx()) {   // Euclid p-locks: F0 7D 01 t F7 clears track t's locks, F0 7D 02 t knob value F7 sets one
+        if (!isLockSysex(m)) return;
+        const auto* d = m.getSysExData();
+        if (d[2] != tr.index) return;
+        if (d[1] == mnm::gen::kLockClear) for (auto& l : tr.lock) l.store(-1, std::memory_order_relaxed);
+        else if (m.getSysExDataSize() >= 5 && d[3] < mnm::gen::kLockTargets) tr.lock[d[3]].store(juce::jlimit(0, 127, int(d[4])), std::memory_order_relaxed);
+        return;
+    }
     // Six: MIDI channels 1..6 address tracks 1..6 (the hardware's individual track channels); One listens on every channel
     if (m_numTracks > 1 && m.getChannel() != tr.index + 1) return;
     auto& h = tr.voice->host();
@@ -767,9 +785,10 @@ void MnmOneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
 {
     juce::ScopedNoDenormals noDenormals;
     const int n = buffer.getNumSamples();
-    if (auto* ph = getPlayHead())
-        if (const auto pos = ph->getPosition())
-            if (const auto bpm = pos->getBpm(); bpm && *bpm > 0.0) m_hostBpm.store(float(*bpm));
+    juce::Optional<juce::AudioPlayHead::PositionInfo> pos;
+    if (auto* ph = getPlayHead()) pos = ph->getPosition();
+    if (pos)
+        if (const auto bpm = pos->getBpm(); bpm && *bpm > 0.0) m_hostBpm.store(float(*bpm));
     {
         // capture the side-chain before the (shared) buffer is cleared for output
         auto in = getBusCount(true) > 0 ? getBusBuffer(buffer, true, 0) : juce::AudioBuffer<float>();
@@ -788,15 +807,63 @@ void MnmOneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
     // each event waits for its engine frame: the first at or after host sample s's engine time, s * 44100 / rate
     for (const auto meta : midi) {
         const auto msg = meta.getMessage();
-        if ((msg.isNoteOnOrOff() || msg.isController()) && m_midi.size() < kMaxPendingMidi)
+        if ((msg.isNoteOnOrOff() || msg.isController() || isLockSysex(msg)) && m_midi.size() < kMaxPendingMidi)
             m_midi.push_back({engineFrameOf(m_hostPos + meta.samplePosition), msg});
     }
+    if (m_gen) runGenerator(pos, midi, n);
     for (int done = 0; done < n;) {   // blocks longer than prepared are split: no allocation on the audio thread
         const int c = std::min(m_maxChunk, n - done);
         processChunk(buffer, done, c);
         done += c;
     }
     midi.clear();
+}
+
+bool MnmOneProcessor::isLockSysex(const juce::MidiMessage& m)
+{
+    return m.isSysEx() && m.getSysExDataSize() >= 3 && m.getSysExData()[0] == mnm::gen::kSysexId;
+}
+
+// Euclid: runs the sequencer over this host block and queues its notes and locks with the host's MIDI (each at its
+// engine frame, in order). The host transport drives it; without one (the standalone app) or, with SEQ RUN WITHOUT
+// HOST, while the host is stopped, it runs on its own clock at the plugin's tempo.
+void MnmOneProcessor::runGenerator(const juce::Optional<juce::AudioPlayHead::PositionInfo>& pos, const juce::MidiBuffer& midi, int n)
+{
+    for (const auto meta : midi) {   // channel 16: key transposition for the melodic tracks (latched)
+        const auto msg = meta.getMessage();
+        if (msg.isNoteOn() && msg.getChannel() == 16) m_gen->setTranspose(msg.getNoteNumber() - 60);
+    }
+    mnm::gen::Transport tr;
+    tr.sampleRate = m_hostRate;
+    tr.numSamples = n;
+    const bool hostClock = pos && pos->getPpqPosition().hasValue();
+    const bool synced = m_bpmSync->load() >= 0.5f;
+    if (hostClock && pos->getIsPlaying()) {
+        tr.playing = true;
+        tr.ppq = *pos->getPpqPosition();
+        tr.bpm = double(m_hostBpm.load());
+        if (const auto sig = pos->getTimeSignature(); sig && sig->numerator > 0 && sig->denominator > 0)
+            tr.barQuarters = 4.0 * sig->numerator / sig->denominator;
+        m_freePpq = 0.0;
+    } else if (!hostClock || m_seqBind.runWithoutHost()) {
+        tr.playing = true;
+        tr.ppq = m_freePpq;
+        tr.bpm = double(synced && hostClock ? m_hostBpm.load() : m_bpm->load());
+        m_freePpq += n * tr.bpm / (60.0 * m_hostRate);
+    } else {
+        tr.playing = false;
+        m_freePpq = 0.0;
+    }
+    m_seqBind.read(m_genParams, m_stepMask);
+    m_gen->process(tr, m_genParams);
+    for (int i = 0; i < m_gen->numEvents(); ++i) {
+        if (m_midi.size() >= kMaxPendingMidi) break;
+        const auto& e = m_gen->event(i);
+        const int64_t frame = engineFrameOf(m_hostPos + e.sample);
+        // after every queued event due at or before this frame (the queue is in frame order; ties keep their order)
+        const auto at = std::upper_bound(m_midi.begin(), m_midi.end(), frame, [](int64_t f, const PendingMidi& p) { return f < p.frame; });
+        m_midi.insert(at, PendingMidi{frame, juce::MidiMessage(e.data, int(e.size), 0.0)});   // short messages: no allocation
+    }
 }
 
 // Bypassed: the main input passes through delayed by the latency the plugin reports, so the host's delay compensation
@@ -819,6 +886,7 @@ void MnmOneProcessor::processBlockBypassed(juce::AudioBuffer<float>& buffer, juc
 juce::AudioProcessorEditor* MnmOneProcessor::createEditor()
 {
     loadLcdArt(m_firmwarePath);   // before the editor measures any text
+    if (isEuclid()) return new scale::ScaledEditor(*this, std::make_unique<EuclidView>(*this));   // Six's editor + the sequencer
     return new scale::ScaledEditor(*this, std::make_unique<OneEditor>(*this));   // resizable, the layout scaled as a whole
 }
 
@@ -954,6 +1022,8 @@ void MnmOneProcessor::getStateInformation(juce::MemoryBlock& destData)
     if (shadows.getNumChildren() > 0) state.appendChild(shadows, nullptr);
     if (auto old = state.getChildWithName("LIBRARY"); old.isValid()) state.removeChild(old, nullptr);
     state.appendChild(libraryToTree(), nullptr);
+    if (isEuclid())
+        for (int t = 0; t < mnm::gen::kTracks; ++t) state.setProperty("qmask" + juce::String(t + 1), juce::int64(m_stepMask[size_t(t)].load()), nullptr);
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
 }
 
@@ -969,6 +1039,8 @@ void MnmOneProcessor::setStateInformation(const void* data, int sizeInBytes)
             shadowsFromTree(state.getChildWithName("SHADOWS"));
             for (auto& tr : m_tracks) tr->shadowSlot = machineSlotOf(*tr);
             libraryFromTree(state.getChildWithName("LIBRARY"));
+            if (isEuclid())
+                for (int t = 0; t < mnm::gen::kTracks; ++t) m_stepMask[size_t(t)].store(uint32_t(juce::int64(state.getProperty("qmask" + juce::String(t + 1), 0))));
             updateHostDisplay(ChangeDetails().withParameterInfoChanged(true));
             if (path.isNotEmpty() && path != m_firmwarePath && juce::File(path).existsAsFile()) setFirmwarePath(path, false);   // session restore must not overwrite the shared setting
         }
