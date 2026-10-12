@@ -13,6 +13,7 @@
 #include <juce_audio_utils/juce_audio_utils.h>
 #include "OneEditor.h"
 #include "EuclidParams.h"
+#include "EuclidPanel.h"
 
 namespace mnm::plugin::one {
 
@@ -90,12 +91,21 @@ private:
 
 class EuclidView;
 
+// GRID editing state shared by the panel's trig keys, the keyboard and the LCD: the selected step of each track and the
+// note and length a new trig gets.
+struct GridEdit {
+    std::array<int, mnm::gen::kTracks> step{};
+    int lastNote = 60;
+    int lastLength = 4;   // quarter steps
+};
+
 // The six tracks: key, ON box, step strip, readout.
 class StepGrid : public juce::Component {
 public:
     static constexpr int kRowH = 14, kKeyW = 40, kStripX = 44, kCellW = 7, kInfoX = kStripX + 32 * kCellW + 3, kLcdW = kInfoX + 40;
     explicit StepGrid(MnmOneProcessor& p) : m_proc(p) {}
     std::function<void(int)> onSelect;
+    GridEdit* edit = nullptr;
     int selected = 0;
     void tick();   // timer: flashes and the play position
     void paint(juce::Graphics&) override;
@@ -120,6 +130,36 @@ public:
 private:
     MnmOneProcessor& m_proc;
 };
+
+// GRID mode: the selected step on the LCD (STEP, NOTE, LEN, TRIG) and whole-pattern tools (OCT, SHIFT, EUC>GRID, CLEAR).
+class GridStepPage : public juce::Component {
+public:
+    static constexpr int kLcdW = 4 * kCell + 1, kLcdH = 11 + 2 * kCell + 1;
+    explicit GridStepPage(MnmOneProcessor& p) : m_proc(p) {}
+    int track = 0;
+    GridEdit* edit = nullptr;
+    std::function<void()> onChanged;
+    void paint(juce::Graphics&) override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override { m_hover = -1; repaint(); }
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    juce::String helpAt(juce::Point<int> local) const;
+private:
+    int cellAt(juce::Point<int> local) const;
+    void nudge(int cell, int delta);
+    MnmOneProcessor& m_proc;
+    int m_down = -1, m_hover = -1, m_applied = 0;
+    float m_wheel = 0.0f;
+};
+
+// Copies the track's Euclidean pattern into its GRID steps (notes from its range and scale), and clears or shifts them.
+void captureEuclidToGrid(MnmOneProcessor& p, int t);
+void clearGrid(MnmOneProcessor& p, int t);
+void shiftGrid(MnmOneProcessor& p, int t, int by);
+void transposeGrid(MnmOneProcessor& p, int t, int semitones);
 
 // The four parameter lanes of the selected track.
 class LanePanel : public juce::Component {
@@ -150,8 +190,11 @@ public:
     void resized() override;
     void mouseMove(const juce::MouseEvent&) override;   // the help line (listens to every child)
     void mouseExit(const juce::MouseEvent&) override { setHelp({}); }
-private:
+    void setGridEdit(GridEdit* e) { m_grid.edit = e; m_step.edit = e; }
     void setHelp(const juce::String& s) { if (s != m_help) { m_help = s; repaint(m_helpArea); } }
+    void showHint(const juce::String& s) { setHelp(s); }
+private:
+    bool gridMode() const;
     void shake();        // a new musical rhythm for the selected track
     void clearMutes();
     MnmOneProcessor& m_proc;
@@ -159,40 +202,71 @@ private:
     StepGrid m_grid;
     LanePanel m_lanes;
     SeqKnobPage m_rhythm{"RHYTHM"}, m_motion{"MOTION"}, m_pitch{"PITCH"};
+    GridStepPage m_step;
     Necklace m_necklace;
     LcdButton m_shake{"SHAKE"}, m_clear{"CLEAR"};
     juce::String m_help;
     juce::Rectangle<int> m_helpArea;
 };
 
-// The window's content: tab bar, then Six's editor or the sequencer page.
+// The window's content: a hardware-style front panel. The LCD in the middle shows Six's pages (SYNTH) or the sequencer
+// (SEQ); around it the track keys, the function keys (SYNTH, SEQ, GRID, REC, CLEAR), eight data entry encoders with
+// their page keys, the 16 trig keys and a two-octave keyboard.
 class EuclidView : public juce::Component, private juce::Timer {
 public:
-    static constexpr int kTabLcdH = 14;
     explicit EuclidView(MnmOneProcessor& p);
     ~EuclidView() override;
     void paint(juce::Graphics&) override;
+    void paintOverChildren(juce::Graphics&) override;   // the glass over the LCD
     void resized() override;
     void childBoundsChanged(juce::Component*) override;
-    void mouseDown(const juce::MouseEvent&) override;   // the tabs
-    void mouseMove(const juce::MouseEvent&) override;
     void showSequencer(bool seq);
     bool sequencerShown() const { return m_seqShown; }
+    void selectTrack(int t);
+    int selectedTrack() const { return m_track; }
+    void setEncoderPage(int page);
     OneEditor& synthEditor() { return m_synth; }
     SeqTabPage& seqPage() { return m_seq; }
+    GridEdit& gridEdit() { return m_edit; }
+    hw::TrigRow& trigRow() { return m_trigs; }
+    enum EncPage { SynPage = 0, AmpPage, FiltPage, EfxPage, Lfo1Page, Lfo2Page, Lfo3Page, RhythmPage, MotionPage, NumEncPages };
+
 private:
     void timerCallback() override;
     void layoutSize();
-    juce::Rectangle<int> tabRect(int i) const;   // screen px
+    void bindEncoders();
+    juce::String encoderLabel(int k) const;
+    bool gridMode() const;
+    void setMode(bool grid);
+    void writeNote(int note, bool advance);
+    void setHint(const juce::String& s);
+    static constexpr int kMargin = 26, kHeaderH = 64, kLeftW = 176, kRightW = 320, kGap = 18, kBezel = 16;
+    static constexpr int kStatusH = 14 * kScale, kTrigH = 128, kKeysH = 100;
+
     MnmOneProcessor& m_proc;
     OneLookAndFeel m_lnf;
     OneEditor m_synth;
     SeqTabPage m_seq;
     SeqField m_seed, m_loop, m_evolve, m_root, m_scale, m_run;
     LcdButton m_dice{"DICE"};
+    GridEdit m_edit;
+
+    std::array<std::unique_ptr<hw::HwKey>, 6> m_trackKeys;
+    hw::HwKey m_synthKey{"Synth", hw::colour::ledGreen}, m_seqKey{"Seq", hw::colour::ledGreen}, m_gridKey{"Grid", hw::colour::ledAmber},
+              m_recKey{"Rec"}, m_clearKey{"Clear"}, m_captureKey{"Euc > Grid", hw::colour::ledAmber};
+    std::array<std::unique_ptr<hw::HwKey>, NumEncPages> m_pageKeys;
+    hw::HwKey m_stepPage1{"1 - 16"}, m_stepPage2{"17 - 32"}, m_octDown{"Oct -"}, m_octUp{"Oct +"};
+    std::array<hw::HwEncoder, 8> m_enc;
+    std::array<std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>, 8> m_encAttach;
+    hw::TrigRow m_trigs;
+    hw::HwKeyboard m_keys;
+
+    juce::Rectangle<int> m_lcd, m_bezel, m_trigArea, m_keysArea, m_encArea, m_transportArea, m_hintArea, m_statusArea;
     bool m_seqShown = true;
-    int m_lastSynthTrack = 0;
-    juce::String m_transport;
+    int m_track = 0, m_encPage = SynPage, m_lastSynthTrack = 0, m_boundTrack = -1, m_boundPage = -1, m_boundSlot = -1;
+    std::array<int, 6> m_lastTrigs{};
+    std::array<float, 6> m_trackFlash{};
+    juce::String m_transport{"STOP"}, m_hint;
 };
 
 } // namespace mnm::plugin::one

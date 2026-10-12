@@ -190,7 +190,9 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     }
     const uint64_t key = hash64(uint64_t(gp.seed) * 7919u + 17u, uint64_t(t), uint64_t(ls), st.gen[slot]);
 
-    if (!euclidHit(steps, p.pulses, p.rotate, pos) || ((p.stepMask >> pos) & 1u)) return;
+    const bool gridMode = p.mode == TrackMode::Grid;
+    const uint32_t cell = gridMode ? p.grid[size_t(pos)] : 0u;
+    if (gridMode ? !gridTrig(cell) : (!euclidHit(steps, p.pulses, p.rotate, pos) || ((p.stepMask >> pos) & 1u))) return;
 
     // trig condition
     // X:Y counts the pattern's repetitions through the song (inside a loop: across loops too)
@@ -212,7 +214,7 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     st.lastPlayed = played;
     if (!played) return;
 
-    const bool accent = p.accents > 0 && euclidHit(steps, p.accents, p.rotate, pos);
+    const bool accent = !gridMode && p.accents > 0 && euclidHit(steps, p.accents, p.rotate, pos);
 
     // the TURING register moves on every trig (pitch and lanes read it)
     {
@@ -228,7 +230,13 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     const int tp = p.pitchMode == PitchMode::Fixed ? 0 : m_transpose;
     const int n = scaleNotes(gp.root + tp, p.scale >= 0 ? p.scale : gp.scale, p.low + tp, p.high + tp, notes);
     int idx = 0;
-    const int note = pickNote(t, st, p, gp, key, notes, n, idx);
+    int note = 0;
+    if (gridMode) {   // the written note, moved by the key transposition
+        note = std::clamp(gridNote(cell) + m_transpose, 0, 127);
+        idx = std::clamp(int(std::lround((note - 24) / 72.0 * std::max(1, n - 1))), 0, std::max(0, n - 1));
+    } else {
+        note = pickNote(t, st, p, gp, key, notes, n, idx);
+    }
     st.lastNote = note;
 
     // ratchets
@@ -262,7 +270,7 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
         case LaneMode::Triangle: x = len > 1 ? 1.0 - std::abs(2.0 * ph / len - 1.0) : 1.0; break;
         case LaneMode::Sine:     x = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979 * double(floorMod(ls, len)) / len); break;
         case LaneMode::Accent:   x = accent ? 1.0 : 0.0; break;
-        case LaneMode::Pitch:    x = n > 1 ? double(idx) / double(n - 1) : 0.5; break;
+        case LaneMode::Pitch:    x = gridMode ? std::clamp((note - 24) / 72.0, 0.0, 1.0) : n > 1 ? double(idx) / double(n - 1) : 0.5; break;
         case LaneMode::Turing:   x = double(hash64(st.turing, uint64_t(l), kLaneTuring) & 0xFFFF) / 65535.0; break;
         default: break;
         }
@@ -271,18 +279,21 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
         u.lock[l].store(v);
     }
 
-    // the notes: count repeats spread over one step from t0, each gated
+    // the notes: count repeats spread over one step from t0, each gated. A GRID step holds its note for its own
+    // length (it may tie over the next steps: a mono voice then glides legato into the next note)
     const double gate = std::clamp(p.gate, 1, 100) / 100.0;
+    const double written = gridMode ? gridLength(cell) / 4.0 * q : 0.0;
     const double minLen = std::min(0.004, q * 0.25);
     for (int i = 0; i < count; ++i) {
         const double a = t0 + q * shapeAt(shape, double(i) / count);
         const double b = t0 + q * shapeAt(shape, double(i + 1) / count);
         int nn = note;
         if (p.ratchetPitch != 0 && i > 0) {
-            if (p.pitchMode == PitchMode::Fixed || n == 0) nn = std::clamp(note + i * p.ratchetPitch, 0, 127);
+            if (gridMode || p.pitchMode == PitchMode::Fixed || n == 0) nn = std::clamp(note + i * p.ratchetPitch, 0, 127);
             else nn = notes[std::clamp(idx + i * p.ratchetPitch, 0, n - 1)];
         }
-        const double off = std::min(b, a + std::max(minLen, (b - a) * gate));
+        const double off = gridMode ? (count == 1 ? t0 + std::max(minLen, written - 1e-4) : std::min(b, a + std::max(minLen, (b - a) * 0.9)))
+                                    : std::min(b, a + std::max(minLen, (b - a) * gate));
         push(t, a, 3, {uint8_t(0x90 | ch), uint8_t(nn), 100});
         st.sounding = true;
         push(t, off, 1, {uint8_t(0x80 | ch), uint8_t(nn), 0});

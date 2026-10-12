@@ -78,6 +78,20 @@ Global (tab bar): **SEED** (DICE picks a new one), **LOOP** (OFF, or the texture
 the plugin's own clock while the host is stopped; the standalone app always does). Notes on **MIDI channel 16**
 transpose every melodic track (latched; C4 = no transposition). Live MIDI on channels 1-6 still plays the tracks.
 
+**GRID mode: notes written by hand.** Each track is either **EUCLID** (the generator decides the hits and notes) or
+**GRID** (press **GRID** on the panel): up to 32 steps, each a trig with its own note and length, written on the 16 trig
+keys under the display. Click an empty key to add a note (the last note and length you used), click a note to select
+it, click it again (or right-click) to remove it. Drag up/down to change the pitch (Shift: an octave), drag right to set
+how long it lasts (the note off, in quarter steps; a note can tie over the following steps). The two-octave keyboard
+plays the track and writes the note into the selected step; with **REC** armed it advances to the next step, so a
+phrase can be typed in note by note, and notes played from a MIDI keyboard are recorded into the playing step while
+the transport runs. **EUC > GRID** copies the current Euclidean pattern into the steps to refine by hand. Chance,
+conditions, ratchets, swing, drift and the lanes work in both modes.
+
+**The panel.** The window is a front panel around the LCD: track keys and function keys (SYNTH, SEQ, GRID, REC,
+CLEAR, EUC > GRID) on the left, eight data entry encoders with page keys (SYN, AMP, FILT, EFX, LFO 1-3, RHYTHM,
+MOTION) on the right, the trig keys and step pages below, and the keyboard with its octave keys at the bottom.
+
 Every random decision is a hash of the seed and the song position, so the same position always plays the same thing:
 a bounce sounds like the playback. The default kit is a ready texture: DPRO BBOX kick and hits, FM+ DYN, a SID bass,
 SWAVE chords and a REVERB on track 6 (fed by track 5).

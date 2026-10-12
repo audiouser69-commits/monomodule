@@ -71,6 +71,20 @@ public:
     mnm::gen::Generator* generator() const { return m_gen.get(); }
     uint32_t stepMask(int t) const { return m_stepMask[size_t(t)].load(); }   // bit n = step n muted by hand
     void setStepMask(int t, uint32_t mask) { m_stepMask[size_t(t)].store(mask); }
+
+    // GRID mode: the steps written by hand (gen::gridCell packing). Not parameters; saved with the session.
+    uint32_t gridCell(int t, int step) const { return m_grid[size_t(t)][size_t(step & 31)].load(); }
+    void setGridCell(int t, int step, uint32_t cell) { m_grid[size_t(t)][size_t(step & 31)].store(cell); }
+
+    // The panel's keyboard and pads: notes played into a track from the editor (message thread).
+    void auditionNote(int t, int note, bool on);
+
+    // REC: notes arriving from the host (any channel but 16) are played on, and written into, the record track.
+    // The editor reads them back with popRecorded(): playing = the transport ran, step = the step that was playing.
+    struct RecordedNote { int note = 60; int step = -1; bool playing = false; };
+    void setRecord(bool armed, int track) { m_recTrack.store(track); m_recArmed.store(armed); }
+    bool recordArmed() const { return m_recArmed.load(); }
+    bool popRecorded(RecordedNote& out);
     int lockValue(int t, int target) const { return m_tracks[size_t(t)]->lock[size_t(target)].load(); }   // -1 = no lock
     float trackPeak(int t) const { return m_tracks[size_t(t)]->peak.load(); }   // linear, pre-mute, decays between UI polls
     float outputPeak() const { return trackPeak(0); }
@@ -250,6 +264,12 @@ private:
     mnm::gen::GlobalParams m_genParams;
     std::array<std::atomic<uint32_t>, mnm::gen::kTracks> m_stepMask{};
     double m_freePpq = 0.0;   // the sequencer's own clock (no host transport)
+    euclid::Bindings::GridStore m_grid{};
+    juce::MidiMessageCollector m_uiMidi;   // auditions from the panel
+    std::atomic<bool> m_recArmed{false};
+    std::atomic<int> m_recTrack{0};
+    juce::AbstractFifo m_recFifo{64};
+    std::array<RecordedNote, 64> m_recBuffer{};
 };
 
 } // namespace mnm::plugin::one

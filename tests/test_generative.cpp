@@ -223,3 +223,47 @@ TEST_CASE(gen_loop_repeats_odd_lengths)
     CHECK(bars[1] == bars[0]);
     CHECK(bars[2] == bars[0]);
 }
+
+TEST_CASE(gen_grid_mode_plays_written_notes_and_lengths)
+{
+    auto gp = oneTrack();
+    auto& t = gp.tracks[0];
+    t.mode = TrackMode::Grid;
+    t.steps = 8;
+    t.grid[0] = gridCell(true, 60, 4);    // C4, one step
+    t.grid[2] = gridCell(true, 63, 8);    // D#4, two steps
+    t.grid[5] = gridCell(true, 67, 2);    // G4, half a step
+    t.grid[6] = gridCell(false, 70, 4);   // no trig: silent
+    Generator g;
+    const auto ev = run(g, gp, 4.0);   // two cycles of 8 sixteenths
+    const auto ons = noteOns(ev);
+    CHECK_EQ(int(ons.size()), 6);
+    const int expect[3] = {60, 63, 67};
+    const double at[3] = {0.0, 0.5, 1.25};
+    for (int i = 0; i < 6; ++i) {
+        CHECK_EQ(ons[size_t(i)].d1, expect[i % 3]);
+        CHECK(std::abs(ons[size_t(i)].ppq - (at[i % 3] + (i / 3) * 2.0)) < 1e-3);
+    }
+    // note offs at the written lengths: 1/4, 1/2 and 1/8 of a quarter after their note ons
+    std::vector<double> offs;
+    for (const auto& e : ev) if (!e.sysex && (e.status & 0xF0) == 0x80) offs.push_back(e.ppq);
+    CHECK(offs.size() >= 3);
+    CHECK(std::abs(offs[0] - 0.25) < 2e-3);
+    CHECK(std::abs(offs[1] - 1.0) < 2e-3);
+    CHECK(std::abs(offs[2] - 1.375) < 2e-3);
+}
+
+TEST_CASE(gen_grid_mode_keeps_chance_and_transpose)
+{
+    auto gp = oneTrack();
+    auto& t = gp.tracks[0];
+    t.mode = TrackMode::Grid;
+    t.steps = 16;
+    for (int i = 0; i < 16; ++i) t.grid[size_t(i)] = gridCell(true, 48 + i, 2);
+    t.prob = 50;
+    Generator g;
+    g.setTranspose(12);
+    const auto ons = noteOns(run(g, gp, 16.0));
+    CHECK(ons.size() > 16 && ons.size() < 48);   // about half of 64
+    for (const auto& e : ons) CHECK(e.d1 >= 60 && e.d1 < 76);   // transposed up an octave
+}

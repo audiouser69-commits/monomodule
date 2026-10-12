@@ -300,6 +300,36 @@ void StepGrid::paint(juce::Graphics& g)
         const uint32_t mask = m_proc.stepMask(t);
         const int playing = gen && on ? gen->ui[size_t(t)].step.load() : -1;
         const bool flash = now < m_flashUntil[size_t(t)];
+        if (param(t, "mode") == int(TrackMode::Grid)) {   // GRID: the written trigs, each with its length
+            const int selStep = edit && sel ? edit->step[size_t(t)] : -1;
+            for (int i = 0; i < steps; ++i) {
+                const int cx = kStripX + i * kCellW;
+                const uint32_t c = m_proc.gridCell(t, i);
+                if (gridTrig(c)) {
+                    cv.fillRect(cx, y0 + 3, 6, 7, on);
+                    if (!on) for (int yy = y0 + 3; yy < y0 + 10; ++yy) for (int xx = cx; xx < cx + 6; ++xx) if (((xx + yy) & 1) == 0) cv.set(xx, yy, false);
+                    const int len = gridLength(c);
+                    const int end = juce::jmin(kStripX + steps * kCellW - 1, cx + (len * kCellW) / 4 - 1);
+                    if (end > cx + 6) { for (int xx = cx + 6; xx <= end; ++xx) cv.set(xx, y0 + 6); cv.set(end, y0 + 5); cv.set(end, y0 + 7); }
+                } else {
+                    cv.fillRect(cx + 2, y0 + 6, 2, 2, on);
+                }
+                if (i % 4 == 0) cv.set(cx, y0 + 12);
+                if (i == selStep) outline(cv, cx - 1, y0 + 1, 8, 11);
+                if (i == playing) {
+                    cv.fillRect(cx, y0 + 11, 6, 2);
+                    if (flash && gridTrig(c)) cv.invertRect(cx - 1, y0 + 1, 8, 10);
+                }
+                if (m_hover.x == t && m_hover.y == i && i != selStep) outline(cv, cx - 1, y0 + 1, 8, 11);
+            }
+            cv.text(tiny(), "GRID", kInfoX + 22, y0 + 2);
+            cv.text(tiny(), kRateNames[juce::jlimit(0, kNumRates - 1, param(t, "rate"))], kInfoX, y0 + 2);
+            if (gen && on) {
+                const int note = gen->ui[size_t(t)].note.load();
+                if (note >= 0) cv.text(tiny(), eu::noteName(note).toUpperCase().toRawUTF8(), kInfoX, y0 + 8);
+            }
+            continue;
+        }
         for (int i = 0; i < steps; ++i) {
             const int cx = kStripX + i * kCellW;
             const bool hit = euclidHit(steps, pulses, rot, i), accent = hit && acc > 0 && euclidHit(steps, acc, rot, i);
@@ -341,7 +371,15 @@ void StepGrid::mouseDown(const juce::MouseEvent& e)
         return;
     }
     const int i = (x - kStripX) / kCellW, steps = param(t, "steps");
-    if (x >= kStripX && i >= 0 && i < steps) {
+    if (x >= kStripX && i >= 0 && i < steps && param(t, "mode") == int(TrackMode::Grid)) {   // GRID: add / select / remove
+        const uint32_t c = m_proc.gridCell(t, i);
+        const bool selectedNow = edit && edit->step[size_t(t)] == i && t == selected;
+        if (!gridTrig(c)) m_proc.setGridCell(t, i, gridCell(true, edit ? edit->lastNote : 60, edit ? edit->lastLength : 4));
+        else if (selectedNow || e.mods.isPopupMenu()) m_proc.setGridCell(t, i, c & ~kGridTrig);
+        if (edit) edit->step[size_t(t)] = i;
+        if (onSelect && t != selected) onSelect(t);
+        repaint();
+    } else if (x >= kStripX && i >= 0 && i < steps) {
         m_proc.setStepMask(t, m_proc.stepMask(t) ^ (1u << i));
         if (onSelect && t != selected) onSelect(t);
         repaint();
@@ -365,6 +403,11 @@ juce::String StepGrid::helpAt(juce::Point<int> local) const
         return x >= kKeyW - 10 ? "TRACCIA " + juce::String(t + 1) + ": IL QUADRATINO ACCENDE/SPEGNE IL SEQUENCER DI QUESTA TRACCIA"
                                : "TRACCIA " + juce::String(t + 1) + ": CLICK PER SELEZIONARLA (ANCHE NELLA PAGINA SYNTH)";
     const int i = (x - kStripX) / kCellW;
+    if (x >= kStripX && i < param(t, "steps") && param(t, "mode") == int(TrackMode::Grid)) {
+        const uint32_t c = m_proc.gridCell(t, i);
+        return "GRID STEP " + juce::String(i + 1) + (gridTrig(c) ? ": " + eu::noteName(gridNote(c)).toUpperCase() + " LEN " + juce::String(gridLength(c) / 4.0, 2)
+                                                             : juce::String(": VUOTO")) + ". CLICK: AGGIUNGE / SELEZIONA, DI NUOVO: TOGLIE";
+    }
     if (x >= kStripX && i < param(t, "steps"))
         return "STEP " + juce::String(i + 1) + ": CLICK PER SILENZIARE/RIATTIVARE A MANO. PIENO = COLPO, ALTO = ACCENTO, BARRATO = MUTO";
     if (x >= kInfoX) return "RATE DELLA TRACCIA, ULTIMA NOTA SUONATA E RATCHET (X2..X8)";
@@ -489,11 +532,13 @@ void LanePanel::resized()
 // ---------------------------------------------------------------------------
 // SeqTabPage
 
-SeqTabPage::SeqTabPage(MnmOneProcessor& p) : m_proc(p), m_grid(p), m_lanes(p), m_necklace(p)
+SeqTabPage::SeqTabPage(MnmOneProcessor& p) : m_proc(p), m_grid(p), m_lanes(p), m_step(p), m_necklace(p)
 {
     addAndMakeVisible(m_grid);
     addAndMakeVisible(m_lanes);
     for (auto* pg : {&m_rhythm, &m_motion, &m_pitch}) addAndMakeVisible(pg);
+    addChildComponent(m_step);
+    m_step.onChanged = [this] { m_grid.repaint(); };
     addAndMakeVisible(m_necklace);
     addAndMakeVisible(m_shake);
     addAndMakeVisible(m_clear);
@@ -554,6 +599,8 @@ SeqTabPage::SeqTabPage(MnmOneProcessor& p) : m_proc(p), m_grid(p), m_lanes(p), m
     m_pitch.knobs[5].dimFn = [mode] { const auto m = mode(); return m != PitchMode::Turing && m != PitchMode::Cycle; };
     m_pitch.knobs[6].dimFn = [mode] { return mode() == PitchMode::Fixed; };
     m_pitch.knobs[2].textFn = [](int v) { return eu::noteName(v); };
+    // GRID: the hits come from the written steps, so the Euclidean knobs and GATE do nothing
+    for (int k : {1, 2, 4, 7}) m_rhythm.knobs[size_t(k)].dimFn = [this] { return gridMode(); };
     m_pitch.knobs[3].textFn = [](int v) { return eu::noteName(v); };
 
     addMouseListener(this, true);
@@ -567,13 +614,23 @@ void SeqTabPage::setTrack(int t)
         for (auto& k : pg->knobs)
             if (k.getProperties().contains("pid")) k.bind(m_proc.apvts, eu::id(m_track, k.getProperties()["pid"].toString()));
     m_grid.selected = m_track;
+    m_step.track = m_track;
     m_necklace.track = m_track;
     m_lanes.setTrack(m_track);
     repaint();
 }
 
+bool SeqTabPage::gridMode() const
+{
+    return int(std::lround(m_proc.apvts.getRawParameterValue(eu::id(m_track, "mode"))->load())) == int(TrackMode::Grid);
+}
+
 void SeqTabPage::tick()
 {
+    const bool grid = gridMode();
+    if (m_step.isVisible() != grid) { m_step.setVisible(grid); m_pitch.setVisible(!grid); }
+    if (grid) m_step.repaint();
+    for (auto& k : m_rhythm.knobs) k.repaint();
     if (m_help.isEmpty()) repaint(m_helpArea);
     m_grid.tick();
     m_necklace.repaint();
@@ -607,6 +664,7 @@ void SeqTabPage::resized()
     m_rhythm.setBounds(R(4, y, SeqKnobPage::kLcdW, SeqKnobPage::kLcdH));
     m_motion.setBounds(R(4 + 133, y, SeqKnobPage::kLcdW, SeqKnobPage::kLcdH));
     m_pitch.setBounds(R(4 + 266, y, SeqKnobPage::kLcdW, SeqKnobPage::kLcdH));
+    m_step.setBounds(m_pitch.getBounds());
     const int nx = 4 + 266 + SeqKnobPage::kLcdW + 4;
     const int nw = kLcdW - nx - 2;
     m_necklace.setBounds(R(nx, y, nw, 50));
@@ -619,6 +677,7 @@ void SeqTabPage::mouseMove(const juce::MouseEvent& e)
 {
     juce::Component* c = e.eventComponent;
     if (c == &m_grid) { setHelp(m_grid.helpAt(e.getEventRelativeTo(&m_grid).getPosition())); return; }
+    if (c == &m_step) { setHelp(m_step.helpAt(e.getEventRelativeTo(&m_step).getPosition())); return; }
     setHelp(helpOf(c == this ? nullptr : c));
 }
 
@@ -646,13 +705,191 @@ void SeqTabPage::shake()
 void SeqTabPage::clearMutes() { m_proc.setStepMask(m_track, 0); m_grid.repaint(); m_necklace.repaint(); }
 
 // ---------------------------------------------------------------------------
-// EuclidView
+// GRID helpers and the STEP page
 
-EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p)
+void captureEuclidToGrid(MnmOneProcessor& p, int t)
+{
+    auto I = [&](const juce::String& id) { return int(std::lround(p.apvts.getRawParameterValue(id)->load())); };
+    const int steps = juce::jlimit(1, kMaxSteps, I(eu::id(t, "steps"))), pulses = I(eu::id(t, "pulses")), rot = I(eu::id(t, "rotate"));
+    const int low = I(eu::id(t, "low")), high = I(eu::id(t, "high")), trackScale = I(eu::id(t, "scale")) - 1;
+    const int root = I(eu::gid("root")), scale = trackScale >= 0 ? trackScale : I(eu::gid("scale")), seed = I(eu::gid("seed"));
+    const bool fixed = I(eu::id(t, "pmode")) == int(PitchMode::Fixed);
+    const int gate = I(eu::id(t, "gate"));
+    const int len = juce::jlimit(1, 16, int(std::lround(gate / 25.0)));
+    const uint32_t mask = p.stepMask(t);
+    uint8_t notes[128];
+    const int n = scaleNotes(root, scale, low, high, notes);
+    for (int i = 0; i < kMaxSteps; ++i) {
+        const bool hit = i < steps && euclidHit(steps, pulses, rot, i) && !((mask >> i) & 1u);
+        int note = juce::jlimit(0, 127, low);
+        if (!fixed && n > 0) note = notes[juce::jlimit(0, n - 1, int(unit(hash64(uint64_t(seed), uint64_t(t), 911u, uint64_t(i))) * n))];
+        p.setGridCell(t, i, gridCell(hit, note, len));
+    }
+}
+
+void clearGrid(MnmOneProcessor& p, int t)
+{
+    for (int i = 0; i < kMaxSteps; ++i) p.setGridCell(t, i, p.gridCell(t, i) & ~kGridTrig);
+}
+
+void shiftGrid(MnmOneProcessor& p, int t, int by)
+{
+    const int steps = juce::jlimit(1, kMaxSteps, int(std::lround(p.apvts.getRawParameterValue(eu::id(t, "steps"))->load())));
+    std::array<uint32_t, kMaxSteps> c{};
+    for (int i = 0; i < steps; ++i) c[size_t(i)] = p.gridCell(t, i);
+    for (int i = 0; i < steps; ++i) p.setGridCell(t, ((i + by) % steps + steps) % steps, c[size_t(i)]);
+}
+
+void transposeGrid(MnmOneProcessor& p, int t, int semitones)
+{
+    for (int i = 0; i < kMaxSteps; ++i) {
+        const uint32_t c = p.gridCell(t, i);
+        p.setGridCell(t, i, gridCell(gridTrig(c), juce::jlimit(0, 127, gridNote(c) + semitones), gridLength(c)));
+    }
+}
+
+namespace {
+constexpr const char* kStepCellNames[8] = {"STEP", "NOTE", "LEN", "TRIG", "OCT", "SHFT", "EUC>", "CLR"};
+juce::String lenText(int q) { return q % 4 == 0 ? juce::String(q / 4) : juce::String(q / 4.0, 2).trimCharactersAtEnd("0"); }
+}
+
+int GridStepPage::cellAt(juce::Point<int> local) const
+{
+    const int x = toLcd(local.x), y = toLcd(local.y) - 11;
+    if (y < 0 || x < 0 || x >= 4 * kCell) return -1;
+    return juce::jlimit(0, 7, (y / kCell) * 4 + x / kCell);
+}
+
+void GridStepPage::paint(juce::Graphics& g)
+{
+    LcdCanvas cv(kLcdW, kLcdH);
+    const int sel = edit ? edit->step[size_t(track)] : 0;
+    const uint32_t c = m_proc.gridCell(track, sel);
+    cv.fillRect(0, 0, kLcdW, 10);
+    cv.text(bold(), "GRID STEP", 3, 1, false);
+    cv.dotsH(0, kLcdW - 1, kLcdH - 1);
+    cv.dotsV(kLcdW - 1, 11, kLcdH - 1);
+    for (int k = 0; k < 8; ++k) {
+        const int x0 = (k % 4) * kCell, y0 = 11 + (k / 4) * kCell;
+        cv.dotsH(x0, x0 + kCell, y0);
+        cv.dotsV(x0, y0, y0 + kCell - 1);
+        cv.textCentred(tiny(), kStepCellNames[k], x0 + 1, kCell - 1, y0 + kLabelY);
+        juce::String v;
+        switch (k) {
+        case 0: v = juce::String(sel + 1); break;
+        case 1: v = gridTrig(c) ? eu::noteName(gridNote(c)).toUpperCase() : juce::String("--"); break;
+        case 2: v = gridTrig(c) ? lenText(gridLength(c)) : juce::String("--"); break;
+        case 3: v = gridTrig(c) ? "ON" : "OFF"; break;
+        case 4: v = "+/-"; break;
+        case 5: v = "< >"; break;
+        case 6: v = "GRID"; break;
+        default: v = "ALL"; break;
+        }
+        cv.textCentred(k < 4 ? bold() : small(), fit(bold(), v, kCell - 4).toRawUTF8(), x0 + 1, kCell - 1, y0 + 12);
+        if (k == m_hover || k == m_down) cv.invertRect(x0 + 1, y0 + kValueBoxY, kCell - 1, kValueBoxH);
+        cv.textCentred(tiny(), k == 0 ? "DRAG" : k < 3 ? "DRAG" : "CLICK", x0 + 1, kCell - 1, y0 + kValueBoxY + 2, !(k == m_hover || k == m_down));
+    }
+    cv.draw(g, 0, 0);
+}
+
+void GridStepPage::nudge(int cell, int d)
+{
+    if (!edit || d == 0) return;
+    const int steps = juce::jlimit(1, kMaxSteps, int(std::lround(m_proc.apvts.getRawParameterValue(eu::id(track, "steps"))->load())));
+    int& sel = edit->step[size_t(track)];
+    const uint32_t c = m_proc.gridCell(track, sel);
+    switch (cell) {
+    case 0: sel = juce::jlimit(0, steps - 1, sel + d); break;
+    case 1: { const int n = juce::jlimit(0, 127, gridNote(c) + d); m_proc.setGridCell(track, sel, gridCell(true, n, gridLength(c))); edit->lastNote = n; break; }
+    case 2: { const int q = juce::jlimit(1, 128, gridLength(c) + d); m_proc.setGridCell(track, sel, gridCell(true, gridNote(c), q)); edit->lastLength = q; break; }
+    case 4: transposeGrid(m_proc, track, 12 * d); break;
+    case 5: shiftGrid(m_proc, track, d); break;
+    default: break;
+    }
+    if (onChanged) onChanged();
+    repaint();
+}
+
+void GridStepPage::mouseDown(const juce::MouseEvent& e)
+{
+    m_down = cellAt(e.getPosition());
+    m_applied = 0;
+    if (m_down == 3 && edit) {
+        const int sel = edit->step[size_t(track)];
+        const uint32_t c = m_proc.gridCell(track, sel);
+        m_proc.setGridCell(track, sel, gridTrig(c) ? (c & ~kGridTrig) : gridCell(true, edit->lastNote, edit->lastLength));
+    } else if (m_down == 6) {
+        captureEuclidToGrid(m_proc, track);
+    } else if (m_down == 7) {
+        clearGrid(m_proc, track);
+    }
+    if (onChanged) onChanged();
+    repaint();
+}
+
+void GridStepPage::mouseDrag(const juce::MouseEvent& e)
+{
+    if (m_down < 0 || m_down == 3 || m_down >= 6) return;
+    const int pxPerStep = m_down == 4 ? 24 : m_down == 5 ? 18 : 8;
+    const int total = int(std::lround(float(e.getDistanceFromDragStartX() - e.getDistanceFromDragStartY()) / float(pxPerStep)));
+    nudge(m_down, total - m_applied);
+    m_applied = total;
+}
+
+void GridStepPage::mouseUp(const juce::MouseEvent&) { m_down = -1; repaint(); }
+
+void GridStepPage::mouseMove(const juce::MouseEvent& e)
+{
+    const int c = cellAt(e.getPosition());
+    if (c != m_hover) { m_hover = c; repaint(); }
+    setMouseCursor(c >= 0 ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+}
+
+void GridStepPage::mouseWheelMove(const juce::MouseEvent& e, const juce::MouseWheelDetails& w)
+{
+    const int c = cellAt(e.getPosition());
+    if (c < 0 || c == 3 || c >= 6) return;
+    m_wheel += w.deltaY;
+    const int d = int(m_wheel / 0.1f);
+    if (d == 0) return;
+    m_wheel -= float(d) * 0.1f;
+    nudge(c, w.isReversed ? -d : d);
+}
+
+juce::String GridStepPage::helpAt(juce::Point<int> local) const
+{
+    switch (cellAt(local)) {
+    case 0: return "STEP: QUALE STEP STAI MODIFICANDO (TRASCINA O ROTELLA). SI SCEGLIE ANCHE CLICCANDO SUI TASTI TRIG SOTTO IL DISPLAY";
+    case 1: return "NOTE: LA NOTA DELLO STEP (TRASCINA, ROTELLA, OPPURE SUONALA SULLA TASTIERA DEL PANNELLO)";
+    case 2: return "LEN: QUANTO DURA LA NOTA (NOTE OFF), IN STEP: 0.25 = UN QUARTO DI STEP, 4 = QUATTRO STEP (SI LEGA ALLE SUCCESSIVE)";
+    case 3: return "TRIG: ACCENDE O SPEGNE IL TRIG DELLO STEP (LA NOTA RESTA MEMORIZZATA)";
+    case 4: return "OCT: TRASPONE TUTTE LE NOTE DELLA TRACCIA DI UN'OTTAVA (TRASCINA SU/GIU')";
+    case 5: return "SHFT: SPOSTA TUTTO IL PATTERN DI UNO STEP A DESTRA O A SINISTRA (TRASCINA)";
+    case 6: return "EUC>GRID: COPIA IL RITMO EUCLIDEO ATTUALE NEGLI STEP, CON NOTE DAL RANGE E DALLA SCALA, PER RIFINIRLO A MANO";
+    case 7: return "CLR: TOGLIE TUTTI I TRIG DELLA TRACCIA";
+    default: return {};
+    }
+}
+
+// ---------------------------------------------------------------------------
+// EuclidView: the front panel
+
+namespace {
+constexpr const char* kEncPageNames[EuclidView::NumEncPages] = {"Syn", "Amp", "Filt", "Efx", "Lfo 1", "Lfo 2", "Lfo 3", "Rhythm", "Motion"};
+constexpr const char* kRhythmIds[8] = {"steps", "pulses", "rotate", "rate", "accents", "prob", "cond", "gate"};
+constexpr const char* kRhythmNames[8] = {"STEPS", "PULSES", "ROTATE", "RATE", "ACCENT", "CHANCE", "COND", "GATE"};
+constexpr const char* kMotionIds[8] = {"rchance", "rmax", "rshape", "rpitch", "swing", "drift", nullptr, nullptr};
+constexpr const char* kMotionNames[8] = {"RATCHET", "R MAX", "R SHAPE", "R PITCH", "SWING", "DRIFT", "", ""};
+}
+
+EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_trigs(p)
 {
     setLookAndFeel(&m_lnf);
     addChildComponent(m_synth);
     addAndMakeVisible(m_seq);
+    m_seq.setGridEdit(&m_edit);
+    m_seq.onTrackSelected = [this](int t) { selectTrack(t); };
+
     auto& s = m_proc.apvts;
     struct F { SeqField* f; const char* id; const char* label; const char* help; };
     for (const F& f : {F{&m_seed, "seed", "SEED", "SEED: OGNI NUMERO E' UN'ALTRA TESSITURA. STESSO SEED + STESSA POSIZIONE = STESSO RISULTATO (IL BOUNCE SUONA COME IL PLAY)"},
@@ -669,18 +906,178 @@ EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p)
     }
     m_dice.onClick = [this] { m_seed.setIntValue(1 + juce::Random::getSystemRandom().nextInt(9999)); };
     addAndMakeVisible(m_dice);
-    m_seq.onTrackSelected = [this](int t) { m_synth.selectTrack(t); m_lastSynthTrack = t; };
+
+    // ---- track keys
+    for (int t = 0; t < 6; ++t) {
+        auto& k = m_trackKeys[size_t(t)];
+        k = std::make_unique<hw::HwKey>("Track " + juce::String(t + 1));
+        k->setCaption(juce::String(t + 1));
+        k->onClick = [this, t] { selectTrack(t); };
+        addAndMakeVisible(*k);
+    }
+    // ---- function keys
+    m_synthKey.onClick = [this] { showSequencer(false); };
+    m_seqKey.onClick = [this] { showSequencer(true); };
+    m_gridKey.onClick = [this] { setMode(!gridMode()); };
+    m_recKey.setClickingTogglesState(true);
+    m_recKey.onClick = [this] { m_proc.setRecord(m_recKey.getToggleState(), m_track); };
+    m_clearKey.onClick = [this] { if (gridMode()) clearGrid(m_proc, m_track); else m_proc.setStepMask(m_track, 0); };
+    m_captureKey.onClick = [this] { captureEuclidToGrid(m_proc, m_track); setMode(true); };
+    m_synthKey.setTooltip("SYNTH: le pagine della Monomachine (macchina, SYN, AMP, FILT, EFX, LFO) sul display");
+    m_seqKey.setTooltip("SEQ: il sequencer sul display");
+    m_gridKey.setTooltip("GRID: la traccia selezionata suona le note scritte sui tasti trig (LED acceso) invece del ritmo euclideo");
+    m_recKey.setTooltip("REC: le note che suoni (tastiera MIDI o la tastiera del pannello) si scrivono negli step della traccia");
+    m_clearKey.setTooltip("CLEAR: GRID = toglie tutti i trig; EUCLID = toglie i mute messi a mano");
+    m_captureKey.setTooltip("EUC > GRID: copia il ritmo euclideo attuale negli step, da rifinire a mano");
+    for (auto* k : {&m_synthKey, &m_seqKey, &m_gridKey, &m_recKey, &m_clearKey, &m_captureKey}) addAndMakeVisible(*k);
+
+    // ---- data entry
+    for (int i = 0; i < NumEncPages; ++i) {
+        auto& k = m_pageKeys[size_t(i)];
+        k = std::make_unique<hw::HwKey>(kEncPageNames[i], i >= RhythmPage ? hw::colour::ledAmber : hw::colour::led);
+        k->onClick = [this, i] { setEncoderPage(i); };
+        addAndMakeVisible(*k);
+    }
+    for (auto& e : m_enc) addAndMakeVisible(e);
+
+    // ---- trig keys and keyboard
+    m_trigs.track = [this] { return m_track; };
+    m_trigs.selectedStep = [this](int t) -> int& { return m_edit.step[size_t(t)]; };
+    m_trigs.lastNote = [this]() -> int& { return m_edit.lastNote; };
+    m_trigs.lastLength = [this]() -> int& { return m_edit.lastLength; };
+    m_trigs.onHint = [this](const juce::String& h) { setHint(h); };
+    addAndMakeVisible(m_trigs);
+    m_stepPage1.onClick = [this] { m_trigs.page = 0; };
+    m_stepPage2.onClick = [this] { m_trigs.page = 1; };
+    m_octDown.onClick = [this] { m_keys.baseOctave = juce::jmax(0, m_keys.baseOctave - 1); m_keys.repaint(); };
+    m_octUp.onClick = [this] { m_keys.baseOctave = juce::jmin(7, m_keys.baseOctave + 1); m_keys.repaint(); };
+    for (auto* k : {&m_stepPage1, &m_stepPage2, &m_octDown, &m_octUp}) addAndMakeVisible(*k);
+    m_keys.onNote = [this](int note, bool on) {
+        m_proc.auditionNote(m_track, note, on);
+        if (!on) return;
+        m_edit.lastNote = note;
+        const bool playing = m_proc.generator() && m_proc.generator()->uiPlaying.load();
+        if (gridMode()) writeNote(note, m_recKey.getToggleState() && !playing);
+    };
+    addAndMakeVisible(m_keys);
+
+    selectTrack(0);
     showSequencer(true);
     layoutSize();
-    startTimerHz(24);
+    startTimerHz(30);
 }
 
 EuclidView::~EuclidView() { setLookAndFeel(nullptr); }
 
+bool EuclidView::gridMode() const
+{
+    return int(std::lround(m_proc.apvts.getRawParameterValue(eu::id(m_track, "mode"))->load())) == int(TrackMode::Grid);
+}
+
+void EuclidView::setMode(bool grid)
+{
+    if (grid) {   // a first GRID starts from what the generator was playing, so there is something to edit
+        bool empty = true;
+        for (int i = 0; i < kMaxSteps; ++i) empty = empty && !gridTrig(m_proc.gridCell(m_track, i));
+        if (empty) captureEuclidToGrid(m_proc, m_track);
+    }
+    if (auto* p = m_proc.apvts.getParameter(eu::id(m_track, "mode"))) {
+        p->beginChangeGesture();
+        p->setValueNotifyingHost(p->convertTo0to1(grid ? 1.0f : 0.0f));
+        p->endChangeGesture();
+    }
+    setHint(grid ? "GRID: CLICCA I TASTI TRIG PER SCRIVERE LE NOTE, SUONA LA TASTIERA PER CAMBIARLE, TRASCINA A DESTRA PER LA LUNGHEZZA"
+                 : "EUCLID: IL RITMO E LE NOTE LI GENERA IL SEQUENCER. I TASTI TRIG MOSTRANO I COLPI E LI SILENZIANO A MANO");
+}
+
+void EuclidView::writeNote(int note, bool advance)
+{
+    const int t = m_track;
+    int& s = m_edit.step[size_t(t)];
+    const uint32_t c = m_proc.gridCell(t, s);
+    m_proc.setGridCell(t, s, gridCell(true, note, gridTrig(c) ? gridLength(c) : m_edit.lastLength));
+    m_edit.lastNote = note;
+    if (advance) {
+        const int steps = juce::jlimit(1, kMaxSteps, int(std::lround(m_proc.apvts.getRawParameterValue(eu::id(t, "steps"))->load())));
+        s = (s + 1) % steps;
+        m_trigs.page = s / 16;
+    }
+    setHint("STEP " + juce::String(s + 1) + "   " + eu::noteName(note) + (advance ? "   >> STEP SUCCESSIVO" : ""));
+}
+
+void EuclidView::setHint(const juce::String& s)
+{
+    if (s == m_hint) return;
+    m_hint = s;
+    repaint(m_hintArea);
+    if (m_seqShown) m_seq.showHint(s.toUpperCase());
+}
+
+void EuclidView::selectTrack(int t)
+{
+    m_track = juce::jlimit(0, 5, t);
+    if (m_synth.selectedTrack() != m_track) m_synth.selectTrack(m_track);
+    if (m_seq.track() != m_track) m_seq.setTrack(m_track);
+    m_lastSynthTrack = m_track;
+    m_proc.setRecord(m_recKey.getToggleState(), m_track);
+    for (int i = 0; i < 6; ++i) m_trackKeys[size_t(i)]->setToggleState(i == m_track, juce::dontSendNotification);
+    bindEncoders();
+    repaint();
+}
+
+void EuclidView::setEncoderPage(int page)
+{
+    m_encPage = juce::jlimit(0, NumEncPages - 1, page);
+    bindEncoders();
+    repaint(m_encArea);
+}
+
+void EuclidView::bindEncoders()
+{
+    const int t = m_track;
+    const int slot = juce::jlimit(0, spec::kNumMachines - 1, int(std::lround(m_proc.apvts.getRawParameterValue(machineId(t))->load())));
+    if (t == m_boundTrack && m_encPage == m_boundPage && slot == m_boundSlot) return;
+    m_boundTrack = t; m_boundPage = m_encPage; m_boundSlot = slot;
+    for (int k = 0; k < 8; ++k) {
+        m_encAttach[size_t(k)].reset();
+        juce::String id;
+        switch (m_encPage) {
+        case SynPage: id = synId(t, k); break;
+        case AmpPage: id = pageId(t, host::Page::AMP, k); break;
+        case FiltPage: id = pageId(t, host::Page::FILT, k); break;
+        case EfxPage: id = pageId(t, host::Page::EFX, k); break;
+        case Lfo1Page: case Lfo2Page: case Lfo3Page: id = lfoId(t, m_encPage - Lfo1Page, k); break;
+        case RhythmPage: id = eu::id(t, kRhythmIds[k]); break;
+        default: id = kMotionIds[k] ? eu::id(t, kMotionIds[k]) : juce::String(); break;
+        }
+        const bool blank = id.isEmpty() || (m_encPage == SynPage && spec::kMachines[slot].params[k].display == spec::Display::Blank);
+        auto& e = m_enc[size_t(k)];
+        e.setEnabled(!blank);
+        if (blank) { e.setValue(0.0, juce::dontSendNotification); continue; }
+        m_encAttach[size_t(k)] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_proc.apvts, id, e);
+        e.getProperties().set("pid", id);
+    }
+    repaint(m_encArea);
+}
+
+juce::String EuclidView::encoderLabel(int k) const
+{
+    const int slot = juce::jlimit(0, spec::kNumMachines - 1, int(std::lround(m_proc.apvts.getRawParameterValue(machineId(m_track))->load())));
+    switch (m_encPage) {
+    case SynPage: { const auto& p = spec::kMachines[slot].params[k]; return p.display == spec::Display::Blank ? juce::String("-") : juce::String(p.label); }
+    case AmpPage: case FiltPage: case EfxPage: return spec::kSharedPages[m_encPage - AmpPage].labels[k];
+    case Lfo1Page: case Lfo2Page: case Lfo3Page: return spec::kLfoParams[k].label;
+    case RhythmPage: return kRhythmNames[k];
+    default: return kMotionNames[k];
+    }
+}
+
 void EuclidView::layoutSize()
 {
-    const int w = juce::jmax(m_synth.getWidth(), SeqTabPage::kLcdW * kScale);
-    const int h = kTabLcdH * kScale + juce::jmax(m_synth.getHeight(), SeqTabPage::kLcdH * kScale);
+    const int lcdW = juce::jmax(m_synth.getWidth(), SeqTabPage::kLcdW * kScale);
+    const int lcdH = juce::jmax(m_synth.getHeight(), kStatusH + SeqTabPage::kLcdH * kScale);
+    const int w = kMargin * 2 + kLeftW + kGap + lcdW + 2 * kBezel + kGap + kRightW;
+    const int h = kMargin * 2 + kHeaderH + lcdH + 2 * kBezel + 20 + kTrigH + 14 + kKeysH;
     if (getWidth() != w || getHeight() != h) setSize(w, h);
     else resized();
 }
@@ -690,59 +1087,174 @@ void EuclidView::childBoundsChanged(juce::Component* c)
     if (c == &m_synth) layoutSize();
 }
 
-juce::Rectangle<int> EuclidView::tabRect(int i) const
-{
-    const int w0 = LcdCanvas::textWidth(bold(), "SYNTH") + 10, w1 = LcdCanvas::textWidth(bold(), "SEQUENCER") + 10;
-    return i == 0 ? juce::Rectangle<int>(4 * kScale, 2 * kScale, w0 * kScale, 11 * kScale)
-                  : juce::Rectangle<int>((6 + w0) * kScale, 2 * kScale, w1 * kScale, 11 * kScale);
-}
-
 void EuclidView::resized()
 {
-    const int top = kTabLcdH * kScale;
-    m_synth.setTopLeftPosition(0, top);
-    m_seq.setBounds((getWidth() - SeqTabPage::kLcdW * kScale) / 2, top, SeqTabPage::kLcdW * kScale, getHeight() - top);
-    int x = tabRect(1).getRight() / kScale + 8;
-    auto place = [&](juce::Component& c, int w) { c.setBounds(x * kScale, 3 * kScale, w * kScale, 9 * kScale); x += w + 3; };
+    const int lcdW = juce::jmax(m_synth.getWidth(), SeqTabPage::kLcdW * kScale);
+    const int lcdH = juce::jmax(m_synth.getHeight(), kStatusH + SeqTabPage::kLcdH * kScale);
+    const int x0 = kMargin, y0 = kMargin + kHeaderH;
+    m_bezel = {x0 + kLeftW + kGap, y0, lcdW + 2 * kBezel, lcdH + 2 * kBezel};
+    m_lcd = m_bezel.reduced(kBezel);
+    m_synth.setTopLeftPosition(m_lcd.getX() + (lcdW - m_synth.getWidth()) / 2, m_lcd.getY() + (lcdH - m_synth.getHeight()) / 2);
+    m_statusArea = m_lcd.withHeight(kStatusH);
+    m_seq.setBounds(m_lcd.getX() + (lcdW - SeqTabPage::kLcdW * kScale) / 2, m_lcd.getY() + kStatusH, SeqTabPage::kLcdW * kScale, SeqTabPage::kLcdH * kScale);
+
+    // status line of the SEQ screen (LCD px from the left of the LCD)
+    int x = 66;
+    auto place = [&](juce::Component& c, int w) { c.setBounds(m_lcd.getX() + x * kScale, m_lcd.getY() + 3 * kScale, w * kScale, 9 * kScale); x += w + 3; };
     place(m_seed, 38);
-    m_dice.setBounds(x * kScale, 2 * kScale, 26 * kScale, 11 * kScale);
+    m_dice.setBounds(m_lcd.getX() + x * kScale, m_lcd.getY() + 2 * kScale, 26 * kScale, 11 * kScale);
     x += 29;
     place(m_loop, 46);
     place(m_evolve, 44);
     place(m_root, 28);
     place(m_scale, 62);
     place(m_run, 36);
+
+    // left: track keys, function keys
+    const int kw = (kLeftW - 10) / 2, kh = 66;
+    for (int t = 0; t < 6; ++t)
+        m_trackKeys[size_t(t)]->setBounds(x0 + (t % 2) * (kw + 10), y0 + 24 + (t / 2) * (kh + 6), kw, kh);
+    const int fy = y0 + 24 + 3 * (kh + 6) + 34;
+    hw::HwKey* fn[6] = {&m_synthKey, &m_seqKey, &m_gridKey, &m_recKey, &m_clearKey, &m_captureKey};
+    for (int i = 0; i < 6; ++i) fn[i]->setBounds(x0 + (i % 2) * (kw + 10), fy + (i / 2) * (kh + 6), kw, kh);
+
+    // right: encoders and page keys
+    const int rx = m_bezel.getRight() + kGap;
+    m_encArea = {rx, y0, kRightW, 24 + 2 * 104};
+    const int ew = kRightW / 4;
+    for (int k = 0; k < 8; ++k) m_enc[size_t(k)].setBounds(rx + (k % 4) * ew + 6, y0 + 24 + (k / 4) * 104 + 18, ew - 12, ew - 12);
+    const int py = y0 + 24 + 2 * 104 + 34;
+    const int pw = (kRightW - 16) / 3;
+    for (int i = 0; i < NumEncPages; ++i) m_pageKeys[size_t(i)]->setBounds(rx + (i % 3) * (pw + 8), py + (i / 3) * 64, pw, 58);
+    m_transportArea = {rx, py + 3 * 64 + 10, kRightW, m_bezel.getBottom() - (py + 3 * 64 + 10)};
+
+    // bottom: trig keys, step pages, keyboard
+    m_trigArea = {m_bezel.getX(), m_bezel.getBottom() + 20, m_bezel.getWidth(), kTrigH};
+    m_trigs.setBounds(m_trigArea);
+    m_stepPage1.setBounds(x0, m_trigArea.getY() + 14, kw, 58);
+    m_stepPage2.setBounds(x0 + kw + 10, m_trigArea.getY() + 14, kw, 58);
+    m_keysArea = {m_bezel.getX(), m_trigArea.getBottom() + 14, 15 * 56, kKeysH};
+    m_keys.setBounds(m_keysArea);
+    m_octDown.setBounds(x0, m_keysArea.getY() + 22, kw, 58);
+    m_octUp.setBounds(x0 + kw + 10, m_keysArea.getY() + 22, kw, 58);
+    m_hintArea = {m_keysArea.getRight() + 24, m_keysArea.getY(), getWidth() - kMargin - m_keysArea.getRight() - 24, kKeysH};
 }
 
 void EuclidView::paint(juce::Graphics& g)
 {
-    g.fillAll(lcd::paper);
-    const int w = getWidth() / kScale;
-    LcdCanvas cv(w, kTabLcdH);
-    for (int i = 0; i < 2; ++i) {
-        const auto r = tabRect(i) / kScale;
-        const bool active = (i == 1) == m_seqShown;
-        if (active) cv.fillRect(r.getX(), r.getY(), r.getWidth(), r.getHeight());
-        else outline(cv, r.getX(), r.getY(), r.getWidth(), r.getHeight());
-        cv.textCentred(bold(), i == 0 ? "SYNTH" : "SEQUENCER", r.getX(), r.getWidth(), r.getY() + 2, !active);
+    using namespace hw;
+    const auto all = getLocalBounds().toFloat();
+    juce::ColourGradient grad(colour::chassisTop, 0.0f, 0.0f, colour::chassisBottom, 0.0f, all.getHeight(), false);
+    g.setGradientFill(grad);
+    g.fillRect(all);
+    // brushed texture: faint horizontal lines
+    g.setColour(juce::Colours::white.withAlpha(0.012f));
+    for (int y = 0; y < getHeight(); y += 3) g.fillRect(0, y, getWidth(), 1);
+    g.setColour(colour::panelLine);
+    g.drawRect(all.reduced(6.0f), 1.0f);
+    for (auto c : {juce::Point<float>(16, 16), juce::Point<float>(all.getRight() - 16, 16), juce::Point<float>(16, all.getBottom() - 16),
+                   juce::Point<float>(all.getRight() - 16, all.getBottom() - 16)})
+        drawScrew(g, c, 6.0f);
+
+    // header: name, and what this is
+    g.setColour(colour::silk);
+    g.setFont(font(30.0f, true).withExtraKerningFactor(0.18f));
+    g.drawText("MONOMODULE", kMargin, kMargin - 2, 330, 40, juce::Justification::centredLeft, false);
+    g.setColour(colour::led);
+    g.drawText("EUCLID", kMargin + 300, kMargin - 2, 200, 40, juce::Justification::centredLeft, false);
+    g.setColour(colour::silkDim);
+    g.setFont(font(12.0f, true).withExtraKerningFactor(0.2f));
+    g.drawText("SIX TRACK DSP SYNTHESIS  /  GENERATIVE EUCLIDEAN SEQUENCER", kMargin, kMargin + 34, 700, 18, juce::Justification::centredLeft, false);
+    g.drawText("EMULATED DSP56300 ENGINE", getWidth() - kMargin - 400, kMargin + 6, 400, 18, juce::Justification::centredRight, false);
+
+    // section labels
+    auto label = [&](const juce::String& s, int x, int y, int w) {
+        g.setColour(colour::silkDim);
+        g.setFont(font(11.0f, true).withExtraKerningFactor(0.25f));
+        g.drawText(s, x, y, w, 14, juce::Justification::centredLeft, false);
+        g.setColour(colour::panelLine);
+        const int tw = juce::GlyphArrangement::getStringWidthInt(font(11.0f, true).withExtraKerningFactor(0.25f), s);
+        g.fillRect(x + tw + 8, y + 7, juce::jmax(0, w - tw - 8), 1);
+    };
+    const int y0 = kMargin + kHeaderH;
+    label("TRACK", kMargin, y0, kLeftW);
+    label("FUNCTION", kMargin, y0 + 24 + 3 * 72 + 10, kLeftW);
+    label("DATA ENTRY  " + juce::String(kEncPageNames[m_encPage]).toUpperCase() + "  T" + juce::String(m_track + 1), m_encArea.getX(), y0, kRightW);
+    label("PAGE", m_encArea.getX(), y0 + 24 + 2 * 104 + 12, kRightW);
+    label("STEP PAGE", kMargin, m_trigArea.getY() - 4, kLeftW);
+    label(gridMode() ? "TRIG  -  GRID: WRITE NOTES" : "TRIG  -  EUCLID: HITS AND MUTES", m_trigArea.getX(), m_trigArea.getY() - 18, m_trigArea.getWidth());
+    label("OCTAVE", kMargin, m_keysArea.getY() + 2, kLeftW);
+
+    // encoder names and values
+    for (int k = 0; k < 8; ++k) {
+        const auto r = m_enc[size_t(k)].getBounds();
+        const bool en = m_enc[size_t(k)].isEnabled();
+        g.setColour(en ? colour::silk : colour::silkDim);
+        g.setFont(font(11.5f, true));
+        g.drawText(juce::String::charToString(juce::juce_wchar('A' + k)) + "  " + encoderLabel(k), r.getX() - 8, r.getY() - 18, r.getWidth() + 16, 14, juce::Justification::centred, false);
+        if (en)
+            if (auto* p = m_proc.apvts.getParameter(m_enc[size_t(k)].getProperties()["pid"].toString())) {
+                g.setColour(colour::led.withAlpha(0.95f));
+                g.setFont(font(12.0f, true));
+                g.drawText(p->getCurrentValueAsText().toUpperCase(), r.getX() - 8, r.getBottom() + 2, r.getWidth() + 16, 14, juce::Justification::centred, false);
+            }
     }
-    cv.dotsH(0, w - 1, kTabLcdH - 1);
-    // transport, right-aligned: PLAY bar.beat or STOP
-    cv.text(small(), m_transport.toRawUTF8(), w - 4 - LcdCanvas::textWidth(small(), m_transport.toRawUTF8()), 5);
-    cv.draw(g, 0, 0);
+
+    // LCD bezel and screen
+    g.setColour(colour::bezel);
+    g.fillRoundedRectangle(m_bezel.toFloat(), 8.0f);
+    g.setColour(juce::Colours::white.withAlpha(0.06f));
+    g.drawRoundedRectangle(m_bezel.toFloat().reduced(0.5f), 8.0f, 1.0f);
+    g.setColour(lcd::paper);
+    g.fillRect(m_lcd);
+    if (m_seqShown) {   // the SEQ screen's status line
+        LcdCanvas cv(m_lcd.getWidth() / kScale, 14);
+        cv.fillRect(0, 0, 62, 14);
+        cv.text(bold(), ("SEQ T" + juce::String(m_track + 1)).toRawUTF8(), 4, 3, false);
+        cv.text(small(), m_transport.toRawUTF8(), cv.width() - 4 - LcdCanvas::textWidth(small(), m_transport.toRawUTF8()), 5);
+        cv.dotsH(0, cv.width() - 1, 13);
+        cv.draw(g, m_lcd.getX(), m_lcd.getY());
+    }
+
+    // transport window
+    {
+        auto r = m_transportArea.toFloat().reduced(0.0f, 4.0f);
+        g.setColour(colour::bezel);
+        g.fillRoundedRectangle(r, 6.0f);
+        const bool playing = m_proc.generator() && m_proc.generator()->uiPlaying.load();
+        auto inner = r.reduced(14.0f, 10.0f);
+        g.setColour(playing ? colour::ledGreen : colour::silkDim);
+        g.setFont(font(26.0f, true));
+        g.drawText(m_transport, inner.removeFromTop(34.0f).toNearestInt(), juce::Justification::centredLeft, false);
+        g.setColour(colour::silkDim);
+        g.setFont(font(11.0f, true).withExtraKerningFactor(0.2f));
+        g.drawText(juce::String(m_proc.hostBpm(), 1) + " BPM", inner.removeFromTop(16.0f).toNearestInt(), juce::Justification::centredLeft, false);
+        if (m_recKey.getToggleState()) {
+            g.setColour(colour::led);
+            g.drawText("REC  T" + juce::String(m_track + 1) + (gridMode() ? "" : "  (SOLO IN GRID)"), inner.removeFromTop(16.0f).toNearestInt(), juce::Justification::centredLeft, false);
+        }
+    }
+
+    // hint
+    g.setColour(colour::silkDim);
+    g.setFont(font(12.0f, true));
+    const juce::String hint = m_hint.isNotEmpty() ? m_hint
+        : gridMode() ? juce::String("GRID: click su un tasto trig = nuova nota (o la seleziona); di nuovo = la toglie. Trascina su/giu' = nota, "
+                                    "a destra = durata. La tastiera scrive la nota nello step selezionato; con REC avanza da sola.")
+                     : juce::String("EUCLID: il sequencer genera ritmo e note. I tasti trig mostrano i colpi (click = mute). "
+                                    "Premi GRID per scrivere le note a mano.");
+    g.drawFittedText(hint.toUpperCase(), m_hintArea.reduced(0, 8), juce::Justification::topLeft, 5, 1.0f);
 }
 
-void EuclidView::mouseDown(const juce::MouseEvent& e)
+void EuclidView::paintOverChildren(juce::Graphics& g)
 {
-    const auto pos = e.getEventRelativeTo(this).getPosition();
-    if (tabRect(0).contains(pos)) showSequencer(false);
-    else if (tabRect(1).contains(pos)) showSequencer(true);
-}
-
-void EuclidView::mouseMove(const juce::MouseEvent& e)
-{
-    const auto pos = e.getPosition();
-    setMouseCursor(tabRect(0).contains(pos) || tabRect(1).contains(pos) ? juce::MouseCursor::PointingHandCursor : juce::MouseCursor::NormalCursor);
+    // glass: a soft reflection over the top of the screen
+    juce::ColourGradient glass(juce::Colours::white.withAlpha(0.07f), 0.0f, float(m_lcd.getY()),
+                               juce::Colours::white.withAlpha(0.0f), 0.0f, float(m_lcd.getY() + m_lcd.getHeight() / 3), false);
+    g.setGradientFill(glass);
+    g.fillRect(m_lcd);
+    g.setColour(juce::Colours::black.withAlpha(0.35f));
+    g.drawRect(m_lcd.expanded(1), 2);
 }
 
 void EuclidView::showSequencer(bool seq)
@@ -750,19 +1262,64 @@ void EuclidView::showSequencer(bool seq)
     m_seqShown = seq;
     m_synth.setVisible(!seq);
     m_seq.setVisible(seq);
+    for (juce::Component* c : {static_cast<juce::Component*>(&m_seed), static_cast<juce::Component*>(&m_loop), static_cast<juce::Component*>(&m_evolve),
+                               static_cast<juce::Component*>(&m_root), static_cast<juce::Component*>(&m_scale), static_cast<juce::Component*>(&m_run),
+                               static_cast<juce::Component*>(&m_dice)})
+        c->setVisible(seq);
+    m_synthKey.setToggleState(!seq, juce::dontSendNotification);
+    m_seqKey.setToggleState(seq, juce::dontSendNotification);
     repaint();
 }
 
 void EuclidView::timerCallback()
 {
-    if (m_synth.selectedTrack() != m_lastSynthTrack) { m_lastSynthTrack = m_synth.selectedTrack(); m_seq.setTrack(m_lastSynthTrack); }
+    if (m_synth.selectedTrack() != m_lastSynthTrack) selectTrack(m_synth.selectedTrack());
+    bindEncoders();   // follows a machine change
     if (m_seqShown) m_seq.tick();
+
+    auto* gen = m_proc.generator();
+    const bool playing = gen && gen->uiPlaying.load();
     juce::String tr = "STOP";
-    if (auto* gen = m_proc.generator(); gen && gen->uiPlaying.load()) {
+    if (playing) {
         const double ppq = juce::jmax(0.0, gen->uiPpq.load());
         tr = "PLAY " + juce::String(int(ppq / 4.0) + 1) + "." + juce::String(int(std::fmod(ppq, 4.0)) + 1);
     }
-    if (tr != m_transport) { m_transport = tr; repaint(0, 0, getWidth(), kTabLcdH * kScale); }
+    if (tr != m_transport) { m_transport = tr; repaint(m_transportArea); repaint(m_statusArea); }
+
+    // LEDs
+    for (int t = 0; t < 6; ++t) {
+        const int n = gen ? gen->ui[size_t(t)].trigs.load() : 0;
+        if (n != m_lastTrigs[size_t(t)]) { m_lastTrigs[size_t(t)] = n; m_trackFlash[size_t(t)] = 1.0f; }
+        else m_trackFlash[size_t(t)] *= 0.7f;
+        m_trackKeys[size_t(t)]->setLed(juce::jmax(m_trackFlash[size_t(t)], juce::jmin(1.0f, m_proc.trackPeak(t) * 2.0f)));
+    }
+    for (int i = 0; i < NumEncPages; ++i) m_pageKeys[size_t(i)]->setToggleState(i == m_encPage, juce::dontSendNotification);
+    m_gridKey.setToggleState(gridMode(), juce::dontSendNotification);
+    const int playStep = playing ? gen->ui[size_t(m_track)].step.load() : -1;
+    const bool blink = (juce::Time::getMillisecondCounter() / 250) % 2 == 0;
+    m_stepPage1.setLed(m_trigs.page == 0 ? 1.0f : (playStep >= 0 && playStep < 16 && blink ? 0.5f : 0.0f));
+    m_stepPage2.setLed(m_trigs.page == 1 ? 1.0f : (playStep >= 16 && blink ? 0.5f : 0.0f));
+    m_recKey.setLed(m_recKey.getToggleState() ? (playing && blink ? 0.6f : 1.0f) : 0.0f);
+
+    // REC: notes played in from the host
+    MnmOneProcessor::RecordedNote rec;
+    while (m_proc.popRecorded(rec)) {
+        if (!gridMode()) continue;
+        if (rec.playing && rec.step >= 0) {
+            const uint32_t c = m_proc.gridCell(m_track, rec.step);
+            m_proc.setGridCell(m_track, rec.step, gridCell(true, rec.note, gridTrig(c) ? gridLength(c) : m_edit.lastLength));
+            m_edit.step[size_t(m_track)] = rec.step;
+        } else {
+            writeNote(rec.note, true);
+        }
+    }
+
+    // the keyboard shows the selected step's note
+    const uint32_t c = m_proc.gridCell(m_track, m_edit.step[size_t(m_track)]);
+    const int hi = gridMode() && gridTrig(c) ? gridNote(c) : -1;
+    if (hi != m_keys.highlighted) { m_keys.highlighted = hi; m_keys.repaint(); }
+    m_trigs.tick();
+    repaint(m_encArea.withHeight(m_encArea.getHeight() + 10));
 }
 
 } // namespace mnm::plugin::one

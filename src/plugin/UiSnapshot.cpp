@@ -72,12 +72,22 @@ int main(int argc, char** argv)
         MnmOneProcessor proc(Variant::Euclid);
         if (argc > 3) proc.setFirmwarePath(juce::String(argv[3]), false);
         proc.setStepMask(1, 0x14);
+        // track 4 (the SID bass) written by hand in GRID mode: a phrase with ties and short notes
+        {
+            using namespace mnm::gen;
+            const int notes[16] = {36, 0, 39, 0, 0, 43, 0, 36, 48, 0, 46, 0, 43, 0, 41, 39};
+            const int lens[16] = {6, 0, 4, 0, 0, 10, 0, 2, 4, 0, 4, 0, 3, 0, 4, 2};
+            for (int i = 0; i < 16; ++i) proc.setGridCell(3, i, gridCell(notes[i] > 0, notes[i] > 0 ? notes[i] : 60, lens[i] > 0 ? lens[i] : 4));
+            if (auto* m = proc.apvts.getParameter(euclid::id(3, "mode"))) m->setValueNotifyingHost(m->convertTo0to1(1.0f));
+        }
         euclid::Bindings b;
         b.bind(proc.apvts);
         mnm::gen::GlobalParams gp;
         std::array<std::atomic<uint32_t>, mnm::gen::kTracks> masks{};
         for (int t = 0; t < mnm::gen::kTracks; ++t) masks[size_t(t)].store(proc.stepMask(t));
-        b.read(gp, masks);
+        euclid::Bindings::GridStore grid{};
+        for (int t = 0; t < mnm::gen::kTracks; ++t) for (int i = 0; i < mnm::gen::kMaxSteps; ++i) grid[size_t(t)][size_t(i)].store(proc.gridCell(t, i));
+        b.read(gp, masks, grid);
         mnm::gen::Transport tr; tr.playing = true; tr.bpm = 120; tr.sampleRate = 48000; tr.numSamples = 480;
         for (double ppq = 0; ppq < 9.3; ppq += 480 * 120.0 / 60.0 / 48000.0) { tr.ppq = ppq; proc.generator()->process(tr, gp); }
         std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
@@ -86,12 +96,28 @@ int main(int argc, char** argv)
         if (view) {
             view->synthEditor().refresh();
             if (juce::String(argv[1]) == "--euclid-synth") view->showSequencer(false);
-            else { view->seqPage().setTrack(2); view->seqPage().tick(); }
+            else { view->selectTrack(3); view->gridEdit().step[3] = 5; view->seqPage().tick(); }
             ed->setSize(view->getWidth(), view->getHeight());
             save(*view, juce::File(juce::String(argv[2])));
         }
         ed.reset();
         return 0;
+    }
+    if (argc == 2 && juce::String(argv[1]) == "--euclid-state") {
+        // --euclid-state: GRID steps and hand mutes survive a session save and reload (prints OK / FAIL)
+        using namespace mnm::plugin::one;
+        MnmOneProcessor a(Variant::Euclid), b(Variant::Euclid);
+        a.setGridCell(2, 0, mnm::gen::gridCell(true, 61, 6));
+        a.setGridCell(2, 31, mnm::gen::gridCell(true, 127, 128));
+        a.setGridCell(5, 7, mnm::gen::gridCell(false, 40, 3));
+        a.setStepMask(1, 0x80000001u);
+        juce::MemoryBlock state;
+        a.getStateInformation(state);
+        b.setStateInformation(state.getData(), int(state.getSize()));
+        bool ok = b.stepMask(1) == 0x80000001u;
+        for (int t = 0; t < 6; ++t) for (int i = 0; i < 32; ++i) ok = ok && a.gridCell(t, i) == b.gridCell(t, i);
+        std::printf("%s\n", ok ? "OK grid state round trip" : "FAIL grid state round trip");
+        return ok ? 0 : 1;
     }
     if (argc == 2 && juce::String(argv[1]) == "--migrate") {
         // --migrate: a session saved by the previous One UI (16-entry machine list, FM ratio as a 24-step

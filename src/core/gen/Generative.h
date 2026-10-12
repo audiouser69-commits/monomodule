@@ -59,6 +59,23 @@ constexpr Scale kScales[kNumScales] = {
     {"PELOG", 0x1A3}, {"PROMETHEUS", 0x655}, {"MIN7 CHORD", 0x489}, {"MAJ7 CHORD", 0x891}, {"FIFTHS", 0x081}, {"OCTAVES", 0x001}};
 constexpr const char* kNoteNames[12] = {"C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"};
 
+// ---- GRID mode: notes written by hand ----
+// A track is EUCLID (the generator decides hits and notes) or GRID (32 steps written by hand, Elektron style: each step
+// a trig with its own note and length). Everything else - chance, condition, ratchets, swing, drift, the lanes - applies
+// to both. A grid step is packed in 32 bits: bit 31 trig, bits 0-6 note, bits 8-15 length in quarter steps (1..128).
+enum class TrackMode : int { Euclid = 0, Grid, Count };
+constexpr const char* kTrackModeNames[int(TrackMode::Count)] = {"EUCLID", "GRID"};
+constexpr uint32_t kGridTrig = 0x80000000u;
+inline bool gridTrig(uint32_t c) { return (c & kGridTrig) != 0; }
+inline int gridNote(uint32_t c) { return int(c & 0x7Fu); }
+inline int gridLength(uint32_t c) { const int l = int((c >> 8) & 0xFFu); return l < 1 ? 4 : l; }   // quarter steps
+inline uint32_t gridCell(bool trig, int note, int lengthQuarters)
+{
+    note = note < 0 ? 0 : note > 127 ? 127 : note;
+    lengthQuarters = lengthQuarters < 1 ? 1 : lengthQuarters > 128 ? 128 : lengthQuarters;
+    return (trig ? kGridTrig : 0u) | uint32_t(note) | (uint32_t(lengthQuarters) << 8);
+}
+
 // ---- parameters (read by the plugin from its parameter tree every block) ----
 struct LaneParams {
     int target = -1;          // -1 off, else page * 8 + knob (page 0 SYN, 1 AMP, 2 FILT, 3 EFX)
@@ -70,6 +87,8 @@ struct LaneParams {
 
 struct TrackParams {
     bool on = false;
+    TrackMode mode = TrackMode::Euclid;
+    std::array<uint32_t, kMaxSteps> grid{};   // GRID mode
     int steps = 16, pulses = 4, rotate = 0;
     int rate = 4;             // index into kRateNames
     int accents = 0;          // pulses of the accent pattern (same steps, same rotation)

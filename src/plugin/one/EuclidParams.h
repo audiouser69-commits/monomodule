@@ -88,6 +88,7 @@ inline std::unique_ptr<juce::AudioProcessorParameterGroup> trackGroup(int t)
     auto g = std::make_unique<juce::AudioProcessorParameterGroup>(id(t, "grp"), "SEQ T" + juce::String(t + 1), " ");
     auto add = [&](std::unique_ptr<juce::RangedAudioParameter> p) { g->addChild(std::move(p)); };
     add(std::make_unique<Bool>(juce::ParameterID{id(t, "on"), 1}, pre + "ON", d.on));
+    add(std::make_unique<Choice>(juce::ParameterID{id(t, "mode"), 1}, pre + "MODE", list(kTrackModeNames, int(TrackMode::Count)), 0));
     add(std::make_unique<Int>(juce::ParameterID{id(t, "steps"), 1}, pre + "STEPS", 1, kMaxSteps, d.steps));
     add(std::make_unique<Int>(juce::ParameterID{id(t, "pulses"), 1}, pre + "PULSES", 0, kMaxSteps, d.pulses));
     add(std::make_unique<Int>(juce::ParameterID{id(t, "rotate"), 1}, pre + "ROTATE", 0, kMaxSteps - 1, d.rotate));
@@ -152,7 +153,7 @@ public:
         for (int t = 0; t < kTracks; ++t) {
             auto& b = m_tracks[size_t(t)];
             const char* names[] = {"on", "steps", "pulses", "rotate", "rate", "accents", "prob", "cond", "rchance", "rmax", "rshape",
-                                   "rpitch", "gate", "swing", "drift", "pmode", "scale", "low", "high", "len", "mutate", "hold"};
+                                   "rpitch", "gate", "swing", "drift", "pmode", "scale", "low", "high", "len", "mutate", "hold", "mode"};
             for (size_t i = 0; i < b.p.size(); ++i) b.p[i] = raw(id(t, names[i]));
             for (int l = 0; l < kLanes; ++l) {
                 const char* ln[] = {"tgt", "min", "max", "mode", "len", "chance"};
@@ -163,7 +164,8 @@ public:
     bool runWithoutHost() const { return m_run->load() >= 0.5f; }
 
     // Fills gp from the parameters; masks = the per-step mutes.
-    void read(GlobalParams& gp, const std::array<std::atomic<uint32_t>, kTracks>& masks) const
+    using GridStore = std::array<std::array<std::atomic<uint32_t>, kMaxSteps>, kTracks>;
+    void read(GlobalParams& gp, const std::array<std::atomic<uint32_t>, kTracks>& masks, const GridStore& grid) const
     {
         auto I = [](const std::atomic<float>* p) { return int(std::lround(p->load())); };
         gp.seed = I(m_seed); gp.loop = I(m_loop); gp.evolve = I(m_evolve); gp.root = I(m_root); gp.scale = I(m_scale);
@@ -171,6 +173,8 @@ public:
             const auto& b = m_tracks[size_t(t)].p;
             auto& tp = gp.tracks[size_t(t)];
             tp.on = b[0]->load() >= 0.5f;
+            tp.mode = TrackMode(juce::jlimit(0, int(TrackMode::Count) - 1, I(b[22])));
+            for (int i = 0; i < kMaxSteps; ++i) tp.grid[size_t(i)] = grid[size_t(t)][size_t(i)].load(std::memory_order_relaxed);
             tp.steps = I(b[1]); tp.pulses = I(b[2]); tp.rotate = I(b[3]); tp.rate = I(b[4]); tp.accents = I(b[5]); tp.prob = I(b[6]);
             tp.cond = Cond(juce::jlimit(0, int(Cond::Count) - 1, I(b[7])));
             tp.ratchetChance = I(b[8]); tp.ratchetMax = I(b[9]);
@@ -191,7 +195,7 @@ public:
     }
 
 private:
-    struct TrackBind { std::array<std::atomic<float>*, 22> p{}; std::array<std::array<std::atomic<float>*, 6>, kLanes> lane{}; };
+    struct TrackBind { std::array<std::atomic<float>*, 23> p{}; std::array<std::array<std::atomic<float>*, 6>, kLanes> lane{}; };
     std::atomic<float>* m_seed = nullptr; std::atomic<float>* m_loop = nullptr; std::atomic<float>* m_evolve = nullptr;
     std::atomic<float>* m_root = nullptr; std::atomic<float>* m_scale = nullptr; std::atomic<float>* m_run = nullptr;
     std::array<TrackBind, kTracks> m_tracks{};

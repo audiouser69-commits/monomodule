@@ -62,6 +62,8 @@ MnmOneProcessor::MnmOneProcessor(Variant variant)
         m_gen = std::make_unique<mnm::gen::Generator>();
         m_seqBind.bind(apvts);
         for (auto& m : m_stepMask) m.store(0);
+        for (auto& tr : m_grid) for (auto& c : tr) c.store(mnm::gen::gridCell(false, 60, 4));
+        m_uiMidi.reset(44100.0);
     }
     m_firmwarePath = loadSharedOsPath();   // never a compiled-in path: fresh installs start unconfigured
     m_midi.reserve(kMaxPendingMidi);       // the audio thread only fills it up to this capacity
@@ -143,6 +145,7 @@ void MnmOneProcessor::initPreset()
     // the side-effect pass has nothing to restore.
     for (auto& tr : m_tracks) { tr->visited.fill(false); tr->shadowSlot = defaultMachineSlot(m_variant, tr->index); }
     for (auto& m : m_stepMask) m.store(0);
+    for (auto& tr : m_grid) for (auto& c : tr) c.store(mnm::gen::gridCell(false, 60, 4));
     libraryFromTree({});
     for (auto* p : getParameters())   // the machine parameter precedes its SYN knobs, whose defaults follow it
         if (auto* rp = dynamic_cast<juce::RangedAudioParameter*>(p)) {
@@ -438,6 +441,7 @@ int MnmOneProcessor::latencyAt(double rate) const
 void MnmOneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
     m_hostRate = sampleRate;
+    if (isEuclid()) m_uiMidi.reset(sampleRate);
     m_needsResample = std::abs(sampleRate - 44100.0) > 0.5;
     m_maxChunk = std::max(1, samplesPerBlock);
     int historyFrames = 0, historyHost = 0;
@@ -804,6 +808,28 @@ void MnmOneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         m_previewVoice.process(main.getWritePointer(0), main.getNumChannels() > 1 ? main.getWritePointer(1) : nullptr, main.getNumSamples(), m_hostRate, false);
     const juce::ScopedTryLock sl(m_engineLock);
     if (!sl.isLocked() || !m_engineReady) { midi.clear(); return; }
+    if (isEuclid()) {
+        m_uiMidi.removeNextBlockOfMessages(midi, n);   // the panel's keyboard and pads
+        if (m_recArmed.load()) {   // REC: host notes play the record track, and are written into it
+            const int rt = juce::jlimit(0, m_numTracks - 1, m_recTrack.load());
+            juce::MidiBuffer routed;
+            const bool playing = m_gen && m_gen->uiPlaying.load();
+            for (const auto meta : midi) {
+                auto msg = meta.getMessage();
+                if (msg.isNoteOnOrOff() && msg.getChannel() != 16) {
+                    msg.setChannel(rt + 1);
+                    if (msg.isNoteOn()) {
+                        int s1, n1, s2, n2;
+                        m_recFifo.prepareToWrite(1, s1, n1, s2, n2);
+                        if (n1 > 0) m_recBuffer[size_t(s1)] = {msg.getNoteNumber(), m_gen ? m_gen->ui[size_t(rt)].step.load() : -1, playing};
+                        m_recFifo.finishedWrite(n1);
+                    }
+                }
+                routed.addEvent(msg, meta.samplePosition);
+            }
+            midi.swapWith(routed);
+        }
+    }
     // each event waits for its engine frame: the first at or after host sample s's engine time, s * 44100 / rate
     for (const auto meta : midi) {
         const auto msg = meta.getMessage();
@@ -817,6 +843,25 @@ void MnmOneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
         done += c;
     }
     midi.clear();
+}
+
+void MnmOneProcessor::auditionNote(int t, int note, bool on)
+{
+    if (!isEuclid()) return;
+    const int ch = juce::jlimit(1, 6, t + 1);
+    auto msg = on ? juce::MidiMessage::noteOn(ch, juce::jlimit(0, 127, note), uint8_t(100)) : juce::MidiMessage::noteOff(ch, juce::jlimit(0, 127, note));
+    msg.setTimeStamp(juce::Time::getMillisecondCounterHiRes() * 0.001);
+    m_uiMidi.addMessageToQueue(msg);
+}
+
+bool MnmOneProcessor::popRecorded(RecordedNote& out)
+{
+    int s1, n1, s2, n2;
+    m_recFifo.prepareToRead(1, s1, n1, s2, n2);
+    if (n1 == 0) return false;
+    out = m_recBuffer[size_t(s1)];
+    m_recFifo.finishedRead(1);
+    return true;
 }
 
 bool MnmOneProcessor::isLockSysex(const juce::MidiMessage& m)
@@ -854,7 +899,7 @@ void MnmOneProcessor::runGenerator(const juce::Optional<juce::AudioPlayHead::Pos
         tr.playing = false;
         m_freePpq = 0.0;
     }
-    m_seqBind.read(m_genParams, m_stepMask);
+    m_seqBind.read(m_genParams, m_stepMask, m_grid);
     m_gen->process(tr, m_genParams);
     for (int i = 0; i < m_gen->numEvents(); ++i) {
         if (m_midi.size() >= kMaxPendingMidi) break;
@@ -1023,7 +1068,12 @@ void MnmOneProcessor::getStateInformation(juce::MemoryBlock& destData)
     if (auto old = state.getChildWithName("LIBRARY"); old.isValid()) state.removeChild(old, nullptr);
     state.appendChild(libraryToTree(), nullptr);
     if (isEuclid())
-        for (int t = 0; t < mnm::gen::kTracks; ++t) state.setProperty("qmask" + juce::String(t + 1), juce::int64(m_stepMask[size_t(t)].load()), nullptr);
+        for (int t = 0; t < mnm::gen::kTracks; ++t) {
+            state.setProperty("qmask" + juce::String(t + 1), juce::int64(m_stepMask[size_t(t)].load()), nullptr);
+            juce::StringArray cells;   // GRID steps, as 32 hex words
+            for (auto& c : m_grid[size_t(t)]) cells.add(juce::String::toHexString(int(c.load())));
+            state.setProperty("qgrid" + juce::String(t + 1), cells.joinIntoString(" "), nullptr);
+        }
     if (auto xml = state.createXml()) copyXmlToBinary(*xml, destData);
 }
 
@@ -1040,7 +1090,12 @@ void MnmOneProcessor::setStateInformation(const void* data, int sizeInBytes)
             for (auto& tr : m_tracks) tr->shadowSlot = machineSlotOf(*tr);
             libraryFromTree(state.getChildWithName("LIBRARY"));
             if (isEuclid())
-                for (int t = 0; t < mnm::gen::kTracks; ++t) m_stepMask[size_t(t)].store(uint32_t(juce::int64(state.getProperty("qmask" + juce::String(t + 1), 0))));
+                for (int t = 0; t < mnm::gen::kTracks; ++t) {
+                    m_stepMask[size_t(t)].store(uint32_t(juce::int64(state.getProperty("qmask" + juce::String(t + 1), 0))));
+                    const auto cells = juce::StringArray::fromTokens(state.getProperty("qgrid" + juce::String(t + 1)).toString(), " ", "");
+                    for (int i = 0; i < mnm::gen::kMaxSteps; ++i)
+                        m_grid[size_t(t)][size_t(i)].store(i < cells.size() ? uint32_t(cells[i].getHexValue64()) : mnm::gen::gridCell(false, 60, 4));
+                }
             updateHostDisplay(ChangeDetails().withParameterInfoChanged(true));
             if (path.isNotEmpty() && path != m_firmwarePath && juce::File(path).existsAsFile()) setFirmwarePath(path, false);   // session restore must not overwrite the shared setting
         }
