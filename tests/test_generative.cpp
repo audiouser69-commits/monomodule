@@ -207,3 +207,19 @@ TEST_CASE(gen_polymetric_rates)
     Generator g;
     CHECK_EQ(int(noteOns(run(g, gp, 4.0)).size()), 20);
 }
+
+TEST_CASE(gen_loop_repeats_odd_lengths)
+{
+    // a 13-step track at 1/16 inside a 1-bar loop restarts with the loop: every bar is the same
+    auto gp = oneTrack();
+    auto& t = gp.tracks[0];
+    t.steps = 13; t.pulses = 5; t.pitchMode = PitchMode::Random; t.low = 40; t.high = 70; t.prob = 70;
+    gp.loop = 1;
+    Generator g;
+    std::map<int, std::vector<std::pair<int, int>>> bars;
+    for (const auto& e : noteOns(run(g, gp, 12.0)))
+        bars[int((e.ppq + 1e-3) / 4.0)].push_back({int(std::lround(std::fmod(e.ppq, 4.0) * 1000.0)), e.d1});
+    CHECK(!bars[0].empty());
+    CHECK(bars[1] == bars[0]);
+    CHECK(bars[2] == bars[0]);
+}

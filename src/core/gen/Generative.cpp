@@ -171,17 +171,18 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     const auto& p = gp.tracks[size_t(t)];
     auto& u = ui[size_t(t)];
     const int steps = std::clamp(p.steps, 1, kMaxSteps);
-    const int pos = int(floorMod(s, steps));
-    u.step.store(pos);
-
-    // LOOP folds the position: the same loop step makes the same decisions every time round (until EVOLVE)
-    int64_t ls = s, cycle = 0;
+    // LOOP folds the position: the same loop step makes the same decisions every time round (until EVOLVE), and
+    // every pattern restarts with the loop, so a 13-step track in a 1-bar loop really plays the same bar again
+    int64_t ls = s, cycle = 0, cyclesPerLoop = 0;
     if (gp.loop > 0) {
         const int64_t loopSteps = std::max<int64_t>(1, std::llround(kLoopBars[std::clamp(gp.loop, 0, kNumLoops - 1)] * tr.barQuarters / q));
         ls = floorMod(s, loopSteps);
         cycle = floorDiv(s, loopSteps);
+        cyclesPerLoop = (loopSteps + steps - 1) / steps;
         if (ls == 0) { st.degree = -1; st.turingSet = false; st.trigCount = 0; st.lastNote = -1; }
     }
+    const int pos = int(floorMod(ls, steps));
+    u.step.store(pos);
     const size_t slot = size_t(floorMod(ls, kEvolveSlots));
     if (gp.loop > 0 && cycle != st.genCycle[slot]) {
         st.genCycle[slot] = cycle;
@@ -192,7 +193,8 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     if (!euclidHit(steps, p.pulses, p.rotate, pos) || ((p.stepMask >> pos) & 1u)) return;
 
     // trig condition
-    const int64_t patternCycle = floorDiv(s, steps);
+    // X:Y counts the pattern's repetitions through the song (inside a loop: across loops too)
+    const int64_t patternCycle = gp.loop > 0 ? cycle * cyclesPerLoop + floorDiv(ls, steps) : floorDiv(s, steps);
     auto xy = [&](int x, int y) { return floorMod(patternCycle, y) == x - 1; };
     const auto& neighbour = m_tracks[size_t((t + kTracks - 1) % kTracks)];
     bool ok = true;
@@ -202,8 +204,8 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     case Cond::P1_4: ok = xy(1, 4); break; case Cond::P2_4: ok = xy(2, 4); break; case Cond::P3_4: ok = xy(3, 4); break; case Cond::P4_4: ok = xy(4, 4); break;
     case Cond::Pre: ok = st.lastPlayed; break; case Cond::NotPre: ok = !st.lastPlayed; break;
     case Cond::Nei: ok = neighbour.lastPlayed; break; case Cond::NotNei: ok = !neighbour.lastPlayed; break;
-    case Cond::First: ok = (gp.loop > 0 ? cycle : patternCycle) == 0; break;
-    case Cond::NotFirst: ok = (gp.loop > 0 ? cycle : patternCycle) != 0; break;
+    case Cond::First: ok = (gp.loop > 0 ? cycle : floorDiv(s, steps)) == 0; break;
+    case Cond::NotFirst: ok = (gp.loop > 0 ? cycle : floorDiv(s, steps)) != 0; break;
     default: break;
     }
     const bool played = ok && unit(hash64(key, kProb)) * 100.0 < p.prob;
@@ -258,7 +260,7 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
         case LaneMode::RampUp:   x = len > 1 ? ph / (len - 1) : 1.0; break;
         case LaneMode::RampDown: x = len > 1 ? 1.0 - ph / (len - 1) : 0.0; break;
         case LaneMode::Triangle: x = len > 1 ? 1.0 - std::abs(2.0 * ph / len - 1.0) : 1.0; break;
-        case LaneMode::Sine:     x = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979 * double(floorMod(s, len)) / len); break;
+        case LaneMode::Sine:     x = 0.5 - 0.5 * std::cos(2.0 * 3.14159265358979 * double(floorMod(ls, len)) / len); break;
         case LaneMode::Accent:   x = accent ? 1.0 : 0.0; break;
         case LaneMode::Pitch:    x = n > 1 ? double(idx) / double(n - 1) : 0.5; break;
         case LaneMode::Turing:   x = double(hash64(st.turing, uint64_t(l), kLaneTuring) & 0xFFFF) / 65535.0; break;
