@@ -1,0 +1,33 @@
+// Monomodule Bench: the Android load test. How many emulated Monomachine tracks (DSP56300, JIT) and MAKU a phone
+// renders in real time, measured offline and heard live through AAudio, before the full app is ported.
+plugins { id 'com.android.application' }
+
+android {
+    namespace 'world.shnolk.mnm.bench'
+    compileSdk 34
+    // the NDK the build machine has (GitHub's runners: ANDROID_NDK_LATEST_HOME), else the SDK's default one
+    def ndk = System.getenv('ANDROID_NDK_LATEST_HOME')
+    if (ndk) ndkPath ndk
+    defaultConfig {
+        applicationId 'world.shnolk.mnm.bench'
+        minSdk 28            // AAudio
+        targetSdk 34
+        versionCode 1
+        versionName '1.1.0'
+        ndk { abiFilters 'arm64-v8a' }
+        externalNativeBuild {
+            cmake {
+                arguments '-DANDROID_STL=c++_shared', '-DCMAKE_BUILD_TYPE=Release'
+                cppFlags '-std=c++17'
+            }
+        }
+    }
+    buildTypes {
+        debug { externalNativeBuild { cmake { arguments '-DCMAKE_BUILD_TYPE=Release' } } }   // (a debug APK, an optimised engine)
+    }
+    externalNativeBuild {
+        cmake { path 'src/main/cpp/CMakeLists.txt'; version '3.22.1' }
+    }
+    compileOptions { sourceCompatibility JavaVersion.VERSION_17; targetCompatibility JavaVersion.VERSION_17 }
+    packagingOptions { jniLibs { useLegacyPackaging true } }   // the .so files extracted: MAKU is dlopen()ed by name
+}

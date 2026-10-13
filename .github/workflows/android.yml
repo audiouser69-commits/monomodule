@@ -1,0 +1,33 @@
+# Monomodule Bench for Android (android/): the load test that measures how many emulated Monomachine tracks and MAKU
+# a phone plays in real time. Builds a debug-signed APK (installable by hand) and keeps it as an artifact.
+name: android
+
+on:
+  push:
+    branches: [master, main]
+    paths: ['android/**', 'src/core/**', 'ext/**', 'cmake/**', '.github/workflows/android.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  apk:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.9'
+      - name: Build the APK
+        run: gradle -p android assembleDebug --stacktrace
+      - name: Name it
+        run: cp android/app/build/outputs/apk/debug/app-debug.apk MonomoduleBench.apk
+      - uses: actions/upload-artifact@v7
+        with:
+          name: monomodule-bench-android
+          path: MonomoduleBench.apk
