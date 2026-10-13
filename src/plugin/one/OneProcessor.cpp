@@ -72,6 +72,12 @@ MnmOneProcessor::MnmOneProcessor(Variant variant)
         m_mkChord = apvts.getRawParameterValue(maku::kChordId);
         m_mkVerbs = apvts.getRawParameterValue(maku::kVerbsId);
         m_mkFeed = apvts.getRawParameterValue(maku::kFeedId);
+        m_mkSend = apvts.getRawParameterValue(maku::kSendId);
+        m_mkSendLevel = apvts.getRawParameterValue(maku::kSendLevelId);
+        m_mkDuck = apvts.getRawParameterValue(maku::kDuckId);
+        m_mkSide = apvts.getRawParameterValue(maku::kSideId);
+        m_mkSideAmt = apvts.getRawParameterValue(maku::kSideAmtId);
+        m_mkDriftAmt = apvts.getRawParameterValue(maku::kDriftId);
         m_mkUi = std::make_unique<maku::MakuUi>();
         m_maku = std::make_unique<maku::MakuLib>();
         if (m_maku->available()) {
@@ -491,6 +497,7 @@ void MnmOneProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
     m_hostPos = m_enginePos = 0;
     if (isEuclid()) {
         m_makuL.assign(size_t(m_maxEngine), 0.f); m_makuR.assign(size_t(m_maxEngine), 0.f);
+        m_mkDuckGain.assign(size_t(m_maxEngine), 1.f);
         for (auto& h : m_makuHist) h.prepare(historyFrames);
         m_mkEventCount = m_mkEventNext = 0;
         m_mkRunning = false;   // (the next start begins at a bar)
@@ -716,6 +723,8 @@ void MnmOneProcessor::renderTrack(Track& tr, int64_t firstFrame, int nEngine)
     }
     // events due after this chunk's last boundary take effect at the next one, which is no earlier than their frame
     for (; ev < m_midi.size() && m_midi[ev].frame < firstFrame + nEngine; ++ev) handleMidi(tr, m_midi[ev].msg);
+    if (m_mkDuckActive && m_makuFrames == nEngine)   // Euclid: MAKU's kick ducks the tracks (DUCK)
+        for (int i = 0; i < nEngine; ++i) { L[i] *= m_mkDuckGain[size_t(i)]; R[i] *= m_mkDuckGain[size_t(i)]; }
 
     float pk = tr.peak.load() * 0.8f;   // fall-off so the meter stays readable between UI polls
     for (int i = 0; i < nEngine; ++i) pk = std::max({pk, std::abs(L[i]), std::abs(R[i])});
@@ -763,18 +772,19 @@ void MnmOneProcessor::writeOutputs(juce::AudioBuffer<float>& buffer, int offset,
             else { m_makuHist[0].pushZeros(nEngine); m_makuHist[1].pushZeros(nEngine); }
         }
     }
-    const bool buses = m_outputMode && int(std::lround(m_outputMode->load())) == int(OutputMode::Buses);
+    const int outMode = m_outputMode ? int(std::lround(m_outputMode->load())) : int(OutputMode::Tracks);
+    const bool buses = outMode == int(OutputMode::Buses), mix = outMode == int(OutputMode::Mix);
     if (buses) {
         for (int b = 0; b < 3; ++b) add(b, m_busL[size_t(b)].data(), m_busR[size_t(b)].data(), m_busHist[size_t(b)]);
     } else {
         for (auto& trp : m_tracks) {
             auto& tr = *trp;
             if (tr.lastFrames < nEngine || outBusMask(tr) == 0) continue;
-            add(tr.index, tr.engL.data(), tr.engR.data(), tr.hist);
+            add(mix ? 0 : tr.index, tr.engL.data(), tr.engR.data(), tr.hist);
         }
     }
-    // MAKU: its own bus (after the tracks'), or with BUSES the main mix (AB)
-    if (isEuclid() && m_makuFrames == nEngine) add(buses ? 0 : m_numTracks, m_makuL.data(), m_makuR.data(), m_makuHist);
+    // MAKU: its own bus (after the tracks'), or with BUSES / MIX the main output
+    if (isEuclid() && m_makuFrames == nEngine) add(buses || mix ? 0 : m_numTracks, m_makuL.data(), m_makuR.data(), m_makuHist);
     if (!m_needsResample) {
         for (int s = 0; s < count; ++s) {
             const auto& st = streams[size_t(s)];
@@ -805,9 +815,10 @@ void MnmOneProcessor::processChunk(juce::AudioBuffer<float>& buffer, int offset,
     const int nEngine = int(e1 - e0);
     fillSideChain(offset, n, e0, nEngine);
     for (int b = 0; b < 3; ++b) { std::fill_n(m_busL[size_t(b)].data(), nEngine, 0.f); std::fill_n(m_busR[size_t(b)].data(), nEngine, 0.f); }
+    if (isEuclid()) { renderMaku(e0, nEngine); makuSend(nEngine); }   // (first: its send and its ducking reach the tracks)
     for (auto& tr : m_tracks)   // in track order: NEIBOR and the mix buses carry the tracks before this one
         if (tr->voice) renderTrack(*tr, e0, nEngine);
-    if (isEuclid()) renderMaku(e0, nEngine);
+    if (isEuclid()) makuSidechain(nEngine);
     // every track has applied the events due before e1
     m_midi.erase(m_midi.begin(), std::find_if(m_midi.begin(), m_midi.end(), [e1](const PendingMidi& p) { return p.frame >= e1; }));
     writeOutputs(buffer, offset, n, nEngine);
@@ -940,6 +951,7 @@ void MnmOneProcessor::runGenerator(const juce::Optional<juce::AudioPlayHead::Pos
         const float depth = m_mkVerbs->load() / 100.0f;
         lk.sink = m_mkVerbNow[0] * depth; lk.cascade = m_mkVerbNow[1] * depth; lk.swell = m_mkVerbNow[2] * depth;
         lk.wobble = m_mkVerbNow[3] * depth; lk.lift = m_mkVerbNow[4] * depth; lk.scramble = m_mkVerbNow[5] * depth;
+        lk.drift = m_mkDriftOn ? m_mkDriftAmt->load() / 100.0f : 0.0f;   // MAKU's DRIFT, shared
     }
     m_gen->process(tr, m_genParams);
     const int feed = makuAvailable() && m_mkOn->load() >= 0.5f ? int(std::lround(m_mkFeed->load())) : 0;   // SEQ > MAKU: notes
@@ -1077,7 +1089,11 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
         for (int i = 0; i < n2; ++i) run(m_mkCommands[size_t(s2 + i)]);
         m_mkFifo.finishedRead(n1 + n2);
     }
-    if (m_mkOn->load() < 0.5f) { m_mkWasOn = false; m_mkChordNow = 0; m_mkVerbNow = {}; m_makuPeak.store(m_makuPeak.load() * 0.8f); return; }
+    if (m_mkOn->load() < 0.5f) {
+        m_mkWasOn = false; m_mkChordNow = 0; m_mkVerbNow = {}; m_mkDriftOn = false; m_mkDuckActive = false; m_mkDuckLast = 1.0f;
+        m_makuPeak.store(m_makuPeak.load() * 0.8f);
+        return;
+    }
     if (!m_mkWasOn) { m_mkWasOn = true; m_makuGain = 0.0f; }
 
     // the key: SEQ > MAKU gives MAKU the sequencer's ROOT and SCALE (a fifth away: MAKU's own change of key signature,
@@ -1096,6 +1112,9 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
     const float level = m_mkLevel->load();
     const float target = level <= -60.0f ? 0.0f : juce::Decibels::decibelsToGain(level);
     const float step = 1.0f / 2048.0f;   // ~50 ms from silence to unity
+    const float duckDepth = m_mkDuck->load() / 100.0f;
+    m_mkDuckActive = duckDepth > 0.0f;
+    if (!m_mkDuckActive) m_mkDuckLast = 1.0f;
     float gain = m_makuGain, pk = m_makuPeak.load() * 0.8f;
     for (int pos = 0; pos < nEngine;) {
         while (m_mkEventNext < m_mkEventCount && m_mkEvents[size_t(m_mkEventNext)].frame <= firstFrame + pos)
@@ -1113,23 +1132,28 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
         }
         int end = nEngine;
         if (m_mkEventNext < m_mkEventCount) end = int(juce::jlimit<int64_t>(pos + 1, nEngine, m_mkEvents[size_t(m_mkEventNext)].frame - firstFrame));
-        const int c = juce::jmin(end - pos, 1024);
+        const int c = juce::jmin(end - pos, 128);   // (a piece at most an I2S half: the kick's ducking follows closely)
         const float* L = nullptr;
         const float* R = nullptr;
         m_maku->render(c, L, R);
+        const float duckTo = m_mkDuckActive ? 1.0f - duckDepth * m_maku->duck() : 1.0f;
         for (int i = 0; i < c; ++i) {
+            m_mkDuckGain[size_t(pos + i)] = m_mkDuckLast + (duckTo - m_mkDuckLast) * float(i + 1) / float(c);
             gain += juce::jlimit(-step * 4.0f, step, target - gain);
             const float l = L[i] * gain, r = R[i] * gain;
             m_makuL[size_t(pos + i)] = l;
             m_makuR[size_t(pos + i)] = r;
             pk = juce::jmax(pk, std::abs(l), std::abs(r));
         }
+        m_mkDuckLast = duckTo;
         pos += c;
     }
+    m_mkDuckShown = 1.0f - m_mkDuckLast;
     m_makuGain = gain;
     m_makuPeak.store(pk);
     m_makuFrames = nEngine;
     m_mkChordNow = m_maku->chordMask();   // the link for the sequencer's next block
+    m_mkDriftOn = m_maku->drift();
     for (int i = 0; i < 6; ++i) m_mkVerbNow[size_t(i)] = m_maku->verbAmount(i);
 
     // the editor's copy, ~25 times a second
@@ -1163,6 +1187,8 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
             u.litKeys = m_maku->litKeys();
             u.chordMask = m_mkChordNow;
             u.verb = m_mkVerbNow;
+            u.duck = m_mkDuckShown;
+            u.side = 1.0f - m_mkSideGain;
             for (int i = 0; i < maku::kParts; ++i) {
                 u.level[size_t(i)] = m_maku->level(i);
                 name(u.part[size_t(i)], m_maku->partName(i));
@@ -1179,6 +1205,37 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
             }
         }
     }
+}
+
+void MnmOneProcessor::makuSend(int nEngine)
+{
+    const int bus = int(std::lround(m_mkSend->load()));
+    if (m_makuFrames != nEngine || bus < 1 || bus > 3) return;
+    const float lvl = m_mkSendLevel->load() / 100.0f;
+    auto& bl = m_busL[size_t(bus - 1)];
+    auto& br = m_busR[size_t(bus - 1)];
+    for (int i = 0; i < nEngine; ++i) { bl[size_t(i)] += m_makuL[size_t(i)] * lvl; br[size_t(i)] += m_makuR[size_t(i)] * lvl; }
+}
+
+// SIDECHAIN: an envelope of the chosen track (attack ~1 ms, release ~150 ms) pulls MAKU down by up to DEPTH
+void MnmOneProcessor::makuSidechain(int nEngine)
+{
+    const int src = int(std::lround(m_mkSide->load()));
+    const float amt = m_mkSideAmt->load() / 100.0f;
+    if (m_makuFrames != nEngine || src < 1 || src > m_numTracks || amt <= 0.0f) { m_mkSideGain = 1.0f; m_mkSideEnv = 0.0f; return; }
+    const auto& tr = *m_tracks[size_t(src - 1)];
+    if (tr.lastFrames != nEngine) return;
+    const float att = 1.0f - std::exp(-1.0f / (0.001f * 44100.0f)), rel = 1.0f - std::exp(-1.0f / (0.15f * 44100.0f));
+    float env = m_mkSideEnv;
+    for (int i = 0; i < nEngine; ++i) {
+        const float x = juce::jmax(std::abs(tr.engL[size_t(i)]), std::abs(tr.engR[size_t(i)]));
+        env += (x - env) * (x > env ? att : rel);
+        const float g = 1.0f - amt * juce::jlimit(0.0f, 1.0f, env * 3.0f);
+        m_makuL[size_t(i)] *= g;
+        m_makuR[size_t(i)] *= g;
+        m_mkSideGain = g;
+    }
+    m_mkSideEnv = env;
 }
 
 void MnmOneProcessor::makuUi(maku::MakuUi& out) const

@@ -63,6 +63,13 @@ void addLayout(juce::AudioProcessorValueTreeState::ParameterLayout& layout)
     g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kVerbsId, 1}, "MAKU VERBS > SEQ", 0, 100, 70, pct));
     g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kFeedId, 1}, "MAKU FEED",
                                                              juce::StringArray{"OFF", "T1", "T2", "T3", "T4", "T5", "T6"}, 0));
+    g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kSendId, 1}, "MAKU SEND", juce::StringArray{"OFF", "BUS AB", "BUS CD", "BUS EF"}, 0));
+    g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kSendLevelId, 1}, "MAKU SEND LEVEL", 0, 100, 50, pct));
+    g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kDuckId, 1}, "MAKU DUCK TRACKS", 0, 100, 0, pct));
+    g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kSideId, 1}, "MAKU SIDECHAIN",
+                                                             juce::StringArray{"OFF", "T1", "T2", "T3", "T4", "T5", "T6"}, 0));
+    g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kSideAmtId, 1}, "MAKU SIDECHAIN DEPTH", 0, 100, 60, pct));
+    g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kDriftId, 1}, "MAKU DRIFT > SEQ", 0, 100, 50, pct));
     g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kKeyId, 1}, "MAKU KEY", juce::StringArray{"SEQ > MAKU", "MAKU > SEQ", "OFF"}, 0));
     layout.add(std::move(g));
 }
@@ -120,6 +127,7 @@ struct MakuLib::Fns {
     void (*bpm_set)(uint32_t) = nullptr;
     uint32_t (*chord_mask)() = nullptr;
     uint32_t (*verb_amount)(uint32_t) = nullptr;
+    uint32_t (*duck)() = nullptr;
 };
 
 namespace {
@@ -172,8 +180,8 @@ MakuLib::MakuLib() : m_fn(std::make_unique<Fns>())
     get(f.likes_pack, "mk_likes_pack"); get(f.likes_unpack, "mk_likes_unpack"); get(f.world_pack, "mk_world_pack");
     get(f.world_apply, "mk_world_apply");
     get(f.note, "mk_note"); get(f.learn, "mk_learn"); get(f.bpm_set, "mk_bpm_set"); get(f.chord_mask, "mk_chord_mask");
-    get(f.verb_amount, "mk_verb_amount");
-    if (!all || f.api_version() != 2) { m_error = "MAKU: library does not match this plugin"; m_lib.reset(); m_file.deleteFile(); return; }
+    get(f.verb_amount, "mk_verb_amount"); get(f.duck, "mk_duck");
+    if (!all || f.api_version() != 3) { m_error = "MAKU: library does not match this plugin"; m_lib.reset(); m_file.deleteFile(); return; }
     m_ok = true;
 #else
     m_error = "MAKU: not in this build";
@@ -211,6 +219,7 @@ void MakuLib::note(int part, int n, int velocity, bool learn) { if (m_ok) m_fn->
 void MakuLib::learn(int n) { if (m_ok) m_fn->learn(uint32_t(n & 127)); }
 void MakuLib::setTempo(int bpm) { if (m_ok) m_fn->bpm_set(uint32_t(juce::jlimit(40, 240, bpm))); }
 uint16_t MakuLib::chordMask() const { return m_ok ? uint16_t(m_fn->chord_mask() & 0xFFF) : uint16_t(0); }
+float MakuLib::duck() const { return m_ok ? juce::jlimit(0.0f, 1.0f, float(4096 - int(m_fn->duck())) / 1800.0f) : 0.0f; }
 float MakuLib::verbAmount(int i) const { return m_ok ? float(m_fn->verb_amount(uint32_t(i))) / 4096.0f : 0.0f; }
 void MakuLib::buttons(uint32_t mask) { if (m_ok) m_fn->buttons(mask); }
 void MakuLib::keys(uint32_t mask) { if (m_ok) m_fn->keys(mask); }

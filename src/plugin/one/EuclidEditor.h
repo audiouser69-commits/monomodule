@@ -247,6 +247,38 @@ private:
     juce::String m_help;
 };
 
+// MIX on the LCD (MixPage.cpp): the six tracks and MAKU as channel strips (meter, LEVEL fader, MUTE / ON), the plugin's
+// OUTPUTS, and the audio between the engines: MAKU SEND into a mix bus (an FX track on BUS xx then processes MAKU),
+// DUCK (MAKU's kick ducks the tracks), SIDECHAIN (a track ducks MAKU), DRIFT > SEQ (MAKU's DRIFT wanders the patterns).
+class MixPage : public juce::Component {
+public:
+    static constexpr int kLcdW = MakuPage::kLcdW, kLcdH = MakuPage::kLcdH;
+    explicit MixPage(MnmOneProcessor& p);
+    void tick();
+    void setHelp(const juce::String& s) { if (s != m_help) { m_help = s; repaint(); } }
+    void paint(juce::Graphics&) override;
+    void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override { m_hover = -1; setHelp({}); repaint(); }
+    void mouseDoubleClick(const juce::MouseEvent&) override;
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+private:
+    int hit(juce::Point<int> local, bool& mute) const;   // strip 0..6 (6 = MAKU), -1 none; mute: on the MUTE / ON box
+    juce::RangedAudioParameter* fader(int strip) const;
+    juce::RangedAudioParameter* muteParam(int strip) const;
+    juce::String helpOf(int strip, bool mute) const;
+    MnmOneProcessor& m_proc;
+    maku::MakuUi m_ui;
+    SeqField m_outputs, m_send, m_sendLevel, m_duck, m_side, m_sideAmt, m_drift;
+    std::array<float, 7> m_meter{};
+    int m_hover = -1, m_drag = -1;
+    float m_dragStart = 0.0f, m_wheel = 0.0f;
+    juce::String m_help;
+};
+
 // The window's content: a hardware-style front panel. The LCD in the middle shows Six's pages (SYNTH) or the sequencer
 // (SEQ); around it the track keys, the function keys (SYNTH, SEQ, GRID, REC, CLEAR), eight data entry encoders with
 // their page keys, the 16 trig keys and a two-octave keyboard.
@@ -263,6 +295,8 @@ public:
     void showMaku();                     // MAKU on the LCD, the panel playing it
     bool makuShown() const { return m_makuShown; }
     MakuPage& makuPage() { return m_maku; }
+    void showMix();                      // the mixer on the LCD: encoders A-H and the page keys become its own
+    bool mixShown() const { return m_mixShown; }
     void selectTrack(int t);
     int selectedTrack() const { return m_track; }
     void setEncoderPage(int page);
@@ -282,6 +316,8 @@ private:
     void writeNote(int note, bool advance);
     void setHint(const juce::String& s);
     void leaveMaku();                    // the panel back to the tracks (labels, held keys let go)
+    void leaveMix();
+    void hidePages();                    // every LCD page and the SEQ fields hidden (a page shows itself after)
     void makuButtons();                  // the verb keys held now -> MAKU's buttons
     void makuNote(int note, bool on);
     static constexpr int kMargin = 26, kHeaderH = 64, kLeftW = 176, kRightW = 320, kGap = 18, kBezel = 16;
@@ -292,6 +328,7 @@ private:
     OneEditor m_synth;
     SeqTabPage m_seq;
     MakuPage m_maku;
+    MixPage m_mix;
     SeqField m_seed, m_loop, m_evolve, m_root, m_scale, m_run;
     LcdButton m_dice{"DICE"};
     GridEdit m_edit;
@@ -299,7 +336,7 @@ private:
     std::array<std::unique_ptr<hw::HwKey>, 6> m_trackKeys;
     hw::HwKey m_synthKey{"Synth", hw::colour::ledGreen}, m_seqKey{"Seq", hw::colour::ledGreen}, m_gridKey{"Grid", hw::colour::ledAmber},
               m_recKey{"Rec"}, m_clearKey{"Clear"}, m_captureKey{"Euc > Grid", hw::colour::ledAmber},
-              m_makuKey{"Maku", hw::colour::ledGreen}, m_makuOnKey{"Maku On", hw::colour::ledGreen};
+              m_makuKey{"Maku", hw::colour::ledGreen}, m_makuOnKey{"Maku On", hw::colour::ledGreen}, m_mixKey{"Mix", hw::colour::ledGreen};
     std::array<std::unique_ptr<hw::HwKey>, NumEncPages> m_pageKeys;
     hw::HwKey m_stepPage1{"1 - 16"}, m_stepPage2{"17 - 32"}, m_octDown{"Oct -"}, m_octUp{"Oct +"};
     std::array<hw::HwEncoder, 8> m_enc;
@@ -308,7 +345,7 @@ private:
     hw::HwKeyboard m_keys;
 
     juce::Rectangle<int> m_lcd, m_bezel, m_trigArea, m_keysArea, m_encArea, m_transportArea, m_hintArea, m_statusArea;
-    bool m_seqShown = true, m_makuShown = false;
+    bool m_seqShown = true, m_makuShown = false, m_mixShown = false;
     uint32_t m_mkKeys = 0, m_mkButtons = 0;   // MAKU: its keyboard keys and buttons held from the panel
     int m_track = 0, m_encPage = SynPage, m_lastSynthTrack = 0, m_boundTrack = -1, m_boundPage = -1, m_boundSlot = -1;
     std::array<int, 6> m_lastTrigs{};

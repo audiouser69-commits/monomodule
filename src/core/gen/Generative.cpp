@@ -13,7 +13,7 @@ int64_t floorMod(int64_t a, int64_t b) { return a - floorDiv(a, b) * b; }
 enum Salt : uint64_t {
     kProb = 1, kHold, kPitch, kWalk, kWalkInit, kTuringInit, kTuringFlip, kCycle, kCycleMut, kCycleMutVal,
     kRatchet, kRatchetN, kRatchetShape, kDrift, kEvolve,
-    kLinkChord = 50, kLinkLift, kLinkScramble, kLinkScrambleNote,   // (Link: after the song's own, so those keep their numbers)
+    kLinkChord = 50, kLinkLift, kLinkScramble, kLinkScrambleNote, kLinkDrift = 60,   // (Link: after the song's own, so those keep their numbers)
     kLaneChance = 100, kLaneValue = 200, kLaneCycle = 300, kLaneTuring = 400
 };
 
@@ -208,7 +208,24 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
 
     const bool gridMode = p.mode == TrackMode::Grid;
     const uint32_t cell = gridMode ? p.grid[size_t(pos)] : 0u;
-    if (gridMode ? !gridTrig(cell) : (!euclidHit(steps, p.pulses, p.rotate, pos) || ((p.stepMask >> pos) & 1u))) return;
+    // the link's DRIFT: the pattern wanders (from the seed and the bar, so a position always plays the same)
+    int pulses = p.pulses, rotate = p.rotate;
+    double driftThin = 0.0;
+    if (gp.link.drift > 0.0f && !gridMode) {
+        const int64_t bar = int64_t(std::floor(double(s) * q / std::max(0.25, tr.barQuarters) + 1e-9));
+        const int64_t seg = floorDiv(bar, 4);
+        const double f = double(bar - seg * 4) / 4.0;
+        auto wander = [&](uint64_t k) {
+            const double a = unit(hash64(uint64_t(gp.seed), uint64_t(t), kLinkDrift + k, uint64_t(seg))) * 2.0 - 1.0;
+            const double b = unit(hash64(uint64_t(gp.seed), uint64_t(t), kLinkDrift + k, uint64_t(seg + 1))) * 2.0 - 1.0;
+            return a + (b - a) * f;
+        };
+        const double a = gp.link.drift;
+        if (pulses > 0) pulses = std::clamp(pulses + int(std::lround(1.5 * a * wander(0))), 1, steps);
+        rotate += int(std::lround(3.0 * a * wander(1)));
+        driftThin = 0.25 * a * (wander(2) + 1.0) * 0.5;
+    }
+    if (gridMode ? !gridTrig(cell) : (!euclidHit(steps, pulses, rotate, pos) || ((p.stepMask >> pos) & 1u))) return;
 
     // trig condition
     // X:Y counts the pattern's repetitions through the song (inside a loop: across loops too)
@@ -231,11 +248,12 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     double prob = p.prob;
     if (lk.sink > 0.0f) prob *= 1.0 - double(lk.sink) * (p.pitchMode == PitchMode::Fixed ? 0.9 : 0.5);
     if (lk.scramble > 0.0f) prob *= 1.0 - 0.3 * double(lk.scramble);
+    prob *= 1.0 - driftThin;
     const bool played = ok && unit(hash64(key, kProb)) * 100.0 < prob;
     st.lastPlayed = played;
     if (!played) return;
 
-    const bool accent = !gridMode && p.accents > 0 && euclidHit(steps, p.accents, p.rotate, pos);
+    const bool accent = !gridMode && p.accents > 0 && euclidHit(steps, p.accents, rotate, pos);
 
     // the TURING register moves on every trig (pitch and lanes read it)
     {

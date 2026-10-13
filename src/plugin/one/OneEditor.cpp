@@ -933,6 +933,7 @@ void OneEditor::showConfigMenu()
         const int mode = int(std::lround(m_proc.apvts.getRawParameterValue(outputModeId())->load()));
         outputs.addItem(40, "Per Track (Track 1-6)", true, mode == int(OutputMode::Tracks));
         outputs.addItem(41, "Mix Buses (AB, CD, EF on outputs 1-3)", true, mode == int(OutputMode::Buses));
+        outputs.addItem(42, "Stereo Mix (every track on output 1)", true, mode == int(OutputMode::Mix));
         m.addSubMenu("Plugin Outputs", outputs);
     }
     {   // the two colours of the UI, shared by every Monomodule window
@@ -962,7 +963,7 @@ void OneEditor::showConfigMenu()
         case 30: case 31: case 32:
             if (auto* p = m_proc.apvts.getParameter(outBusId(m_track, r - 30))) p->setValueNotifyingHost(p->getValue() >= 0.5f ? 0.0f : 1.0f);
             break;
-        case 40: case 41:
+        case 40: case 41: case 42:
             if (auto* p = m_proc.apvts.getParameter(outputModeId())) p->setValueNotifyingHost(p->convertTo0to1(float(r - 40)));
             break;
         case 3:

@@ -129,7 +129,8 @@ int main(int argc, char** argv)
             ppq += 441 * 92.0 / 60.0 / 44100.0;
         }
         if (view) {
-            view->showMaku();
+            if (std::getenv("MK_MIX")) { view->showMix(); view->makuPage().tick(); }
+            else view->showMaku();
             view->makuPage().tick();
             view->makuPage().tick();
             ed->setSize(view->getWidth(), view->getHeight());
@@ -155,6 +156,7 @@ int main(int argc, char** argv)
         const int block = 480;
         proc.enableAllBuses();
         proc.prepareToPlay(rate, block);
+        if (auto* o = proc.apvts.getParameter(outputModeId())) o->setValueNotifyingHost(o->convertTo0to1(0.0f));   // per track: MAKU on its own bus
         if (auto* r = proc.apvts.getParameter(euclid::gid("root"))) r->setValueNotifyingHost(r->convertTo0to1(9.0f));   // A
         if (auto* sc = proc.apvts.getParameter(euclid::gid("scale"))) sc->setValueNotifyingHost(sc->convertTo0to1(3.0f));   // DORIAN
         const int buses = proc.getBusCount(false);
@@ -230,6 +232,26 @@ int main(int argc, char** argv)
                           && u2.macro[2][1] == 17 && u2.likes == 1 && ui.likes == 1 && ui.seed == u2.seed;
         std::printf("%s maku state: likes %d -> %d, haze tone %d -> %d, seed %u -> %u\n", same ? "OK" : "FAIL", ui.likes, u2.likes,
                     ui.macro[2][1], u2.macro[2][1], ui.seed, u2.seed);
+        // the default outputs (Euclid: STEREO MIX): MAKU on output 1 with the tracks, its own bus silent
+        {
+            MnmOneProcessor mixed(Variant::Euclid);
+            mixed.setPlayHead(&head);
+            mixed.enableAllBuses();
+            mixed.prepareToPlay(rate, block);
+            double main = 0.0, own = 0.0, p2 = 0.0;
+            for (int i = 0; i < 400; ++i) {
+                head.info.setIsPlaying(true); head.info.setPpqPosition(p2); buf.clear();
+                mixed.processBlock(buf, midi);
+                main += mixed.getBusBuffer(buf, false, 0).getRMSLevel(0, 0, block);
+                own += mixed.getBusBuffer(buf, false, buses - 1).getRMSLevel(0, 0, block);
+                p2 += block * bpm / 60.0 / rate;
+            }
+            const bool mixOk = int(std::lround(mixed.apvts.getRawParameterValue(outputModeId())->load())) == int(OutputMode::Mix) && main > 0.0 && own == 0.0;
+            std::printf("%s euclid default outputs: stereo mix on output 1 (main %.2f, maku bus %.2f)\n", mixOk ? "OK" : "FAIL", main, own);
+            ok = ok && mixOk;
+            mixed.setPlayHead(nullptr);
+            head.info.setIsPlaying(false);
+        }
         // HOST BPM: MAKU's own clock at the host's tempo, running with the transport stopped
         if (auto* c = other.apvts.getParameter(maku::kClockId)) c->setValueNotifyingHost(c->convertTo0to1(2.0f));
         head.info.setBpm(101.0);

@@ -15,7 +15,7 @@
 
 #define MK EXPORT
 
-MK uint32_t mk_api_version(void) { return 2; }
+MK uint32_t mk_api_version(void) { return 3; }
 
 /* clock: 1 = follow MIDI clock (the host's transport, through mk_realtime), 0 = MAKU's own tempo, running */
 MK void mk_clock_mode(uint32_t ext)
@@ -104,6 +104,8 @@ MK uint32_t mk_chord_mask(void)
     }
     return last;
 }
+/* the kick's ducking now, Q12: 4096 = none (the drones sink under the kick from DENSITY 40, down to ~0.56 at 127) */
+MK uint32_t mk_duck(void) { return maku.duck < 0 ? 0u : maku.duck > 4096 ? 4096u : (uint32_t)maku.duck; }
 /* how far each upper verb acts now, 0..4096: SINK CASCADE SWELL WOBBLE LIFT SCRAMBLE (the panel's order) */
 MK uint32_t mk_verb_amount(uint32_t i)
 {

@@ -203,6 +203,8 @@ private:
     void makuBlockStart(const juce::MidiBuffer& midi);   // the last block's waiting events first, then the DAW's MIDI for MAKU
     void pushMaku(int64_t frame, int kind, int a = 0, int b = 0, int c = 0);
     void makuApplyButtons();
+    void makuSend(int nEngine);        // MAKU into a mix bus (before the tracks, so an FX track on that bus hears it)
+    void makuSidechain(int nEngine);   // a track ducks MAKU (after the tracks)
     void renderMaku(int64_t firstFrame, int nEngine);
     void followMakuKey();   // message thread: MAKU > SEQ
     static bool isLockSysex(const juce::MidiMessage& m);
@@ -295,6 +297,15 @@ private:
     std::atomic<float>* m_mkChord = nullptr;
     std::atomic<float>* m_mkVerbs = nullptr;
     std::atomic<float>* m_mkFeed = nullptr;
+    std::atomic<float>* m_mkSend = nullptr;
+    std::atomic<float>* m_mkSendLevel = nullptr;
+    std::atomic<float>* m_mkDuck = nullptr;
+    std::atomic<float>* m_mkSide = nullptr;
+    std::atomic<float>* m_mkSideAmt = nullptr;
+    std::atomic<float>* m_mkDriftAmt = nullptr;
+    std::vector<float> m_mkDuckGain;            // the tracks' gain under MAKU's kick, this chunk (per frame)
+    bool m_mkDuckActive = false, m_mkDriftOn = false;
+    float m_mkDuckLast = 1.0f, m_mkSideEnv = 0.0f, m_mkSideGain = 1.0f, m_mkDuckShown = 0.0f;
     uint32_t m_mkPanelButtons = 0, m_mkMidiButtons = 0, m_mkSentButtons = 0;
     std::array<bool, 128> m_mkCcHigh{};         // the DAW's CC on channel 15 last above 63 (edges)
     uint16_t m_mkChordNow = 0;                  // the link, read after each render (audio thread)

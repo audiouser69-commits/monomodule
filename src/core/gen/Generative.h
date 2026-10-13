@@ -119,7 +119,10 @@ struct Link {
     // the gestures held now, 0..1 each: SINK thins (the drums most), CASCADE adds rising ratchets, SWELL lengthens the
     // gates, WOBBLE loosens the timing, LIFT lifts melodic notes an octave, SCRAMBLE breaks rhythm and pitch
     float sink = 0.0f, cascade = 0.0f, swell = 0.0f, wobble = 0.0f, lift = 0.0f, scramble = 0.0f;
-    bool active() const { return (chordMask && chord > 0) || sink > 0 || cascade > 0 || swell > 0 || wobble > 0 || lift > 0 || scramble > 0; }
+    // DRIFT (0..1): the EUCLID patterns wander slowly round their settings, a new place every four bars, reached bar by
+    // bar: PULSES +-1.5, ROTATE +-3, a little less CHANCE
+    float drift = 0.0f;
+    bool active() const { return (chordMask && chord > 0) || sink > 0 || cascade > 0 || swell > 0 || wobble > 0 || lift > 0 || scramble > 0 || drift > 0; }
 };
 int nearestChordNote(int note, uint16_t chordMask, int low, int high);   // the chord note nearest note, inside [low, high] if one is
 

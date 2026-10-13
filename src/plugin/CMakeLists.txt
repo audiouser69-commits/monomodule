@@ -96,7 +96,7 @@ juce_add_plugin(MnmEuclid
   HARDENED_RUNTIME_OPTIONS ${MNM_HARDENED_OPTS}
   MICROPHONE_PERMISSION_ENABLED FALSE)
 
-set(MNM_ONE_SOURCES one/OneProcessor.cpp one/EuclidEditor.cpp one/EuclidPanel.cpp one/MakuHost.cpp one/MakuPage.cpp one/OneEditor.cpp one/MachinePicker.cpp one/LibraryUi.cpp one/Lcd.cpp one/SkinDialog.cpp one/SpecData.cpp one/RomArt.cpp)
+set(MNM_ONE_SOURCES one/OneProcessor.cpp one/EuclidEditor.cpp one/EuclidPanel.cpp one/MakuHost.cpp one/MakuPage.cpp one/MixPage.cpp one/OneEditor.cpp one/MachinePicker.cpp one/LibraryUi.cpp one/Lcd.cpp one/SkinDialog.cpp one/SpecData.cpp one/RomArt.cpp)
 target_sources(MnmOne PRIVATE one/OneFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
 target_sources(MnmSix PRIVATE one/SixFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
 target_sources(MnmFx PRIVATE one/FxFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)

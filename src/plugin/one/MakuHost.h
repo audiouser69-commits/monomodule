@@ -52,6 +52,13 @@ inline const char* kFeedId = "mkfeed";      // 0 OFF, 1..6: that track's notes m
 // MIDI from the DAW: channels 11-14 play PULSE..VOICE, 15 the part in focus (and its notes melt into VOICE);
 // on channel 15 CC 102-107 hold SINK..SCRAMBLE, 108 is DRIFT's key, 109 NEW WORLD, 110 LIKE (each >= 64 = pressed)
 constexpr int kMidiFirstPartChannel = 11, kMidiFocusChannel = 15, kMidiVerbCC = 102;
+// the audio between the engines and the shared DRIFT
+inline const char* kSendId = "mksend";      // 0 OFF, 1..3: MAKU sent into mix bus AB / CD / EF (an FX track on BUS xx hears it)
+inline const char* kSendLevelId = "mksendlvl";
+inline const char* kDuckId = "mkduck";      // 0..100 %: MAKU's kick ducks the six tracks (as it ducks its own drones)
+inline const char* kSideId = "mkside";      // 0 OFF, 1..6: that track ducks MAKU (a sidechain)
+inline const char* kSideAmtId = "mksideamt";
+inline const char* kDriftId = "mkdrift";    // 0..100 %: MAKU's DRIFT also wanders the Euclidean patterns
 void addLayout(juce::AudioProcessorValueTreeState::ParameterLayout& layout);
 
 // The library. Missing (a build without MAKU, or a file that would not load): available() is false and the plugin
@@ -75,6 +82,7 @@ public:
     void setTempo(int bpm);                 // MAKU's own clock
     uint16_t chordMask() const;             // FLOOR's chord now, pitch classes
     float verbAmount(int i) const;          // 0..1, i: SINK CASCADE SWELL WOBBLE LIFT SCRAMBLE
+    float duck() const;                     // the kick's dip now, 0 (none) .. 1 (the deepest, DENSITY 127)
     void buttons(uint32_t mask);
     void keys(uint32_t mask);
     int focus() const;
@@ -128,6 +136,7 @@ struct MakuUi {
     std::array<std::array<Name, 3>, kParts> macroName{};
     uint16_t chordMask = 0;
     std::array<float, 6> verb{};           // the upper verbs' amounts now
+    float duck = 0.0f, side = 0.0f;        // the kick's dip on the tracks, the sidechain's on MAKU (0..1)
     uint32_t screenSerial = 0;
     std::array<uint16_t, kScreen * kScreen> screen{};
 };

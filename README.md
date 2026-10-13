@@ -112,8 +112,17 @@ Euclidean tracks carry the rhythm and the detail, MAKU the space and the harmony
   melt into VOICE, as the keyboard's do), and its CC 102-107 hold SINK..SCRAMBLE, 108 is DRIFT's key, 109 NEW WORLD and
   110 LIKE (value 64 or more = pressed), so the gestures can be automated. CLOCK **HOST BPM** runs MAKU on its own clock
   at the host's tempo, also while the transport is stopped.
-* **Its own output**: MAKU has a stereo bus of its own (**MAKU**, after Track 1-6), folded into the main output when
-  the host leaves it off; **MAKU ON** switches it off entirely (no CPU).
+* **Heard at once**: by default (OUTPUTS **STEREO MIX**) the six tracks and MAKU all play on output 1, so everything
+  sounds as soon as the plugin is loaded. Choose **PER TRACK** (each track on its own output, MAKU on the seventh,
+  **MAKU**) or **BUSES** (the mix buses AB/CD/EF on outputs 1-3) to split them in the DAW. **MAKU ON** switches MAKU off
+  entirely (no CPU).
+* **MIX page**: the **MIX** key shows the six tracks and MAKU as channel strips (meter, LEVEL fader, MUTE / ON), the
+  OUTPUTS setting and the audio between the engines; encoders A-F are the track levels, G MAKU's level, H its send, and
+  the page keys mute tracks 1-6 and switch MAKU. **SEND** puts MAKU into a mix bus, so an FX track whose input is BUS
+  AB/CD/EF (REVERB, CHORUS, RINGMOD ...) processes it; **DUCK** lets MAKU's kick duck the six tracks, as it ducks its
+  own drones; **SIDECHAIN** lets a track (say the Euclidean kick on T1) duck MAKU; **DRIFT > SEQ** makes MAKU's DRIFT
+  wander the Euclidean patterns too (PULSES, ROTATE and CHANCE move round their settings, a new place every four bars,
+  still from the seed).
 
 MAKU plays even before the Monomachine OS file is chosen. Its source is in [`ext/maku`](ext/maku/README.md)
 (GPL-3.0-only), built into a library that each plugin instance loads a private copy of.

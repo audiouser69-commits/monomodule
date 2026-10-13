@@ -323,3 +323,22 @@ TEST_CASE(gen_link_off_changes_nothing_and_verbs_act)
     for (const auto& n : noteOns(run(f, gp, 16.0))) high += n.d1 > 72;
     CHECK(high > 0);
 }
+
+TEST_CASE(gen_link_drift_wanders_and_repeats)
+{
+    auto gp = oneTrack();
+    auto& t = gp.tracks[0];
+    t.steps = 16; t.pulses = 5;
+    Generator a;
+    std::map<int, int> base;
+    for (const auto& e : noteOns(run(a, gp, 64.0))) base[int(e.ppq / 4.0)]++;
+    gp.link.drift = 1.0f;
+    Generator b, c;
+    const auto d1 = noteOns(run(b, gp, 64.0)), d2 = noteOns(run(c, gp, 64.0));
+    CHECK_EQ(d1.size(), d2.size());   // the same position, the same wander
+    std::map<int, int> drifted;
+    for (const auto& e : d1) drifted[int(e.ppq / 4.0)]++;
+    bool moved = false;
+    for (int bar = 0; bar < 16; ++bar) { moved |= drifted[bar] != base[bar]; CHECK(drifted[bar] <= 7); }
+    CHECK(moved);
+}

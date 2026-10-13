@@ -33,8 +33,10 @@ constexpr int kMaxTracks = 6;
 // input source (host::FxInput: NEIBOR, INP A/B/AB = the side-chain, BUS AB/CD/EF). `outputs` decides what the
 // plugin's six output buses carry: each track's own output (TRACKS), or the three mix buses AB/CD/EF on
 // buses 1-3 as the hardware's 3xSTEREO outputs (BUSES).
-enum class OutputMode : int { Tracks = 0, Buses = 1 };
-constexpr const char* kOutputModeNames[2] = {"TRACKS", "BUSES"};
+// TRACKS: track n on output n; BUSES: the mix buses AB/CD/EF on outputs 1-3; MIX: every track (and Euclid's MAKU) summed
+// on output 1, so all of them are heard at once (Euclid's default: the user splits the outputs when needed)
+enum class OutputMode : int { Tracks = 0, Buses = 1, Mix = 2 };
+constexpr const char* kOutputModeNames[3] = {"TRACKS", "BUSES", "MIX"};
 
 inline juce::String trackPrefix(int t) { return "t" + juce::String(t + 1); }   // t = 0-based track
 inline juce::String machineId(int t = 0) { return trackPrefix(t) + "machine"; }
@@ -198,7 +200,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(Variant 
     }
     if (numTracks > 1)
         layout.add(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{outputModeId(), 1}, "OUTPUTS",
-            juce::StringArray{"Per Track", "Mix Buses AB CD EF"}, int(OutputMode::Tracks)));
+            juce::StringArray{"Per Track", "Mix Buses AB CD EF", "Stereo Mix"}, int(variant == Variant::Euclid ? OutputMode::Mix : OutputMode::Tracks)));
     // Tempo: the tick word (24 x BPM) follows the host's transport by default; BPM is the free value used
     // when sync is off (drag or type it in the header).
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{bpmSyncId(), 1}, "BPM sync to host", true));
