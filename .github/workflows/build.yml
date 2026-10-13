@@ -1,6 +1,5 @@
-# Builds and tests Monomodule on macOS, Linux and Windows. On a version tag (v1.2.3) it also creates a draft
-# GitHub release with the Linux and Windows zips attached; the macOS and Windows installers are built separately
-# and added to the draft by hand before it is published.
+# Builds and tests Monomodule on macOS, Linux and Windows. On a version tag (v1.2.3) it also publishes a GitHub
+# release with the macOS, Linux and Windows zips attached.
 name: build
 
 on:
@@ -82,7 +81,16 @@ jobs:
           merge-multiple: true
       - uses: softprops/action-gh-release@v3
         with:
-          draft: true
+          draft: false
+          prerelease: false
+          name: Monomodule Euclid ${{ github.ref_name }}
+          body: |
+            Monomodule Euclid: the emulated Monomachine (six tracks), the generative Euclidean sequencer with GRID mode,
+            and MAKU, the ambient generator, linked to it (shared key, CHORD, gestures, MIX page and routing).
+            Download the zip for your system; the VST3 plugins are in its VST3 folder (copy the whole "Monomodule Euclid.vst3"
+            folder to C:\Program Files\Common Files\VST3 on Windows). User manual (Italian): docs/Monomodule-Euclid-Manuale.pdf.
+            The Monomachine OS file (Elektron_SFX6-60_OS1.32B.syx, free from Elektron) is asked for on first use.
           files: |
             dist/*-linux-*.zip
             dist/*-windows-*.zip
+            dist/*-macos-*.zip
