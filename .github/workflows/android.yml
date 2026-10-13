@@ -30,7 +30,7 @@ jobs:
         if: failure()
         shell: bash
         run: |   # the first errors as annotations (readable without the logs)
-          grep -nE "error:|error |What went wrong|CMake Error|FAILED|undefined reference|fatal" build.log | head -60 > errs.txt || true
+          { grep -A12 "What went wrong" build.log; grep -nE "error:|CMake Error|undefined reference|fatal error" -A2 build.log; } | head -90 > errs.txt || true
           python3 - <<'PY'
           import re
           lines = open('errs.txt').read().splitlines()
