@@ -16,15 +16,28 @@ jobs:
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v7
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
-      - uses: gradle/actions/setup-gradle@v4
+      - uses: gradle/actions/setup-gradle@v5
         with:
           gradle-version: '8.9'
       - name: Build the APK
-        run: gradle -p android assembleDebug --stacktrace
+        shell: bash
+        run: set -o pipefail; gradle -p android assembleDebug 2>&1 | tee build.log
+      - name: Report the errors
+        if: failure()
+        shell: bash
+        run: |   # the first errors as annotations (readable without the logs)
+          grep -nE "error:|error |What went wrong|CMake Error|FAILED|undefined reference|fatal" build.log | head -60 > errs.txt || true
+          python3 - <<'PY'
+          import re
+          lines = open('errs.txt').read().splitlines()
+          for i in range(0, len(lines), 6):
+              chunk = '%0A'.join(l.replace('%', '%25')[:300] for l in lines[i:i + 6])
+              print('::error::' + chunk)
+          PY
       - name: Name it
         run: cp android/app/build/outputs/apk/debug/app-debug.apk MonomoduleBench.apk
       - uses: actions/upload-artifact@v7
