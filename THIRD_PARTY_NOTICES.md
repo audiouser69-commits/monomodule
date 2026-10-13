@@ -2,7 +2,8 @@
 
 Monomodule is © Shnolk and is licensed under the GNU Affero General Public License v3.0 (see `LICENSE`).
 It is built from, or was written with the help of, the projects below. Each keeps its own copyright and licence.
-The build downloads the libraries (JUCE and dsp56300); none of them is copied into this repository.
+The build downloads the libraries (JUCE and dsp56300); none of them is copied into this repository, except MAKU (below),
+whose source is in `ext/maku`.
 
 ## Libraries compiled into Monomodule
 
@@ -14,6 +15,7 @@ The build downloads the libraries (JUCE and dsp56300); none of them is copied in
 | Intel ITT / JIT profiling API (part of dsp56300, Windows and Linux builds), © Intel Corporation | profiler hooks of the dsp56300 JIT | BSD 3-Clause (dual-licensed: GPL-2.0-only or BSD-3-Clause; used under the BSD licence) |
 | [VST3 SDK](https://github.com/steinbergmedia/vst3sdk), © Steinberg Media Technologies GmbH (bundled with JUCE) | VST3 plugin format | GNU GPL v3 (dual-licensed: Steinberg VST3 licence or GPLv3; used under the GPLv3) |
 | [AudioUnitSDK](https://github.com/apple/AudioUnitSDK), © Apple Inc. (bundled with JUCE, macOS only) | Audio Unit plugin format | Apache 2.0 |
+| [MAKU](https://github.com/okumurari2/maku), © okumurari, a modified [Felucca](https://github.com/hugelton/Felucca), © Leo Kuroshita (Hügelton Instruments); Monomodule Euclid only | the ambient generator inside Monomodule Euclid (`ext/maku`, built as a library the plugin embeds and loads) | GNU GPL v3 only; its ports of DaisySP and Rings (MIT) and msfa (Apache 2.0), its Inter Tight font (SIL OFL 1.1, rasterised) and its CC0 samples keep their licences, listed in `ext/maku/LICENSING.md` |
 | Other JUCE dependencies (zlib, libpng, jpeglib, FLAC, Ogg Vorbis, HarfBuzz, SheenBidi and others) | as listed in JUCE's `LICENSE.md` | as listed there |
 
 The GNU GPL v3 and the GNU AGPL v3 may be combined (section 13 of each), and the combined work is distributed under

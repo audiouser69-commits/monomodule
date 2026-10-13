@@ -49,6 +49,8 @@ file(GLOB app_files "${app}/Monomodule Library*")
 file(COPY ${app_files} DESTINATION "${STAGE}/Library")
 
 file(COPY "${SRC_DIR}/LICENSE" "${SRC_DIR}/THIRD_PARTY_NOTICES.md" "${SRC_DIR}/README.md" DESTINATION "${STAGE}")
+# MAKU (in Monomodule Euclid): its licences beside ours
+file(COPY "${SRC_DIR}/ext/maku/LICENSE" "${SRC_DIR}/ext/maku/LICENSING.md" "${SRC_DIR}/ext/maku/LICENSES" "${SRC_DIR}/ext/maku/README.md" DESTINATION "${STAGE}/MAKU")
 
 execute_process(COMMAND ${CMAKE_COMMAND} -E tar cf "${NAME}.zip" --format=zip "${NAME}"
                 WORKING_DIRECTORY "${OUT_DIR}" RESULT_VARIABLE rc)

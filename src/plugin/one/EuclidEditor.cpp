@@ -882,11 +882,13 @@ constexpr const char* kMotionIds[8] = {"rchance", "rmax", "rshape", "rpitch", "s
 constexpr const char* kMotionNames[8] = {"RATCHET", "R MAX", "R SHAPE", "R PITCH", "SWING", "DRIFT", "", ""};
 }
 
-EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_trigs(p)
+EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_maku(p), m_trigs(p)
 {
     setLookAndFeel(&m_lnf);
     addChildComponent(m_synth);
     addAndMakeVisible(m_seq);
+    addChildComponent(m_maku);
+    m_maku.onFocus = [this](int) { bindEncoders(); };
     m_seq.setGridEdit(&m_edit);
     m_seq.onTrackSelected = [this](int t) { selectTrack(t); };
 
@@ -912,7 +914,10 @@ EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_
         auto& k = m_trackKeys[size_t(t)];
         k = std::make_unique<hw::HwKey>("Track " + juce::String(t + 1));
         k->setCaption(juce::String(t + 1));
-        k->onClick = [this, t] { selectTrack(t); };
+        k->onClick = [this, t] {
+            if (!m_makuShown) { selectTrack(t); return; }
+            if (t < maku::kParts) { m_proc.makuCommand({maku::MakuCommand::Focus, t}); m_maku.setHelp(m_maku.ui().part[size_t(t)].data() + juce::String(" A FUOCO: ENCODER E-G = I SUOI MACRO, LA TASTIERA LA SUONA")); }
+        };
         addAndMakeVisible(*k);
     }
     // ---- function keys
@@ -923,6 +928,17 @@ EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_
     m_recKey.onClick = [this] { m_proc.setRecord(m_recKey.getToggleState(), m_track); };
     m_clearKey.onClick = [this] { if (gridMode()) clearGrid(m_proc, m_track); else m_proc.setStepMask(m_track, 0); };
     m_captureKey.onClick = [this] { captureEuclidToGrid(m_proc, m_track); setMode(true); };
+    m_makuKey.onClick = [this] { if (m_makuShown) showSequencer(true); else showMaku(); };
+    m_makuOnKey.onClick = [this] {
+        if (auto* on = m_proc.apvts.getParameter(maku::kOnId)) {
+            on->beginChangeGesture();
+            on->setValueNotifyingHost(on->getValue() >= 0.5f ? 0.0f : 1.0f);
+            on->endChangeGesture();
+        }
+    };
+    m_makuKey.setTooltip("MAKU: il generatore ambient sul display; il pannello suona i suoi gesti (di nuovo = torna al SEQ)");
+    m_makuOnKey.setTooltip("MAKU ON: accende / spegne MAKU (spento non consuma CPU)");
+    for (auto* k : {&m_makuKey, &m_makuOnKey}) { k->setEnabled(m_proc.makuAvailable()); addAndMakeVisible(*k); }
     m_synthKey.setTooltip("SYNTH: le pagine della Monomachine (macchina, SYN, AMP, FILT, EFX, LFO) sul display");
     m_seqKey.setTooltip("SEQ: il sequencer sul display");
     m_gridKey.setTooltip("GRID: la traccia selezionata suona le note scritte sui tasti trig (LED acceso) invece del ritmo euclideo");
@@ -935,7 +951,12 @@ EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_
     for (int i = 0; i < NumEncPages; ++i) {
         auto& k = m_pageKeys[size_t(i)];
         k = std::make_unique<hw::HwKey>(kEncPageNames[i], i >= RhythmPage ? hw::colour::ledAmber : hw::colour::led);
-        k->onClick = [this, i] { setEncoderPage(i); };
+        k->onClick = [this, i] {
+            if (!m_makuShown) { setEncoderPage(i); return; }
+            if (maku::kVerbs[i].button == maku::BHome) m_proc.makuCommand({maku::MakuCommand::NewWorld});
+            else if (maku::kVerbs[i].button == maku::BRec) m_proc.makuCommand({maku::MakuCommand::Like});
+        };
+        k->onStateChange = [this] { makuButtons(); };
         addAndMakeVisible(*k);
     }
     for (auto& e : m_enc) addAndMakeVisible(e);
@@ -949,10 +970,11 @@ EuclidView::EuclidView(MnmOneProcessor& p) : m_proc(p), m_synth(p), m_seq(p), m_
     addAndMakeVisible(m_trigs);
     m_stepPage1.onClick = [this] { m_trigs.page = 0; };
     m_stepPage2.onClick = [this] { m_trigs.page = 1; };
-    m_octDown.onClick = [this] { m_keys.baseOctave = juce::jmax(0, m_keys.baseOctave - 1); m_keys.repaint(); };
-    m_octUp.onClick = [this] { m_keys.baseOctave = juce::jmin(7, m_keys.baseOctave + 1); m_keys.repaint(); };
+    m_octDown.onClick = [this] { if (m_makuShown) { MakuPage::fifth(m_proc, -1); return; } m_keys.baseOctave = juce::jmax(0, m_keys.baseOctave - 1); m_keys.repaint(); };
+    m_octUp.onClick = [this] { if (m_makuShown) { MakuPage::fifth(m_proc, 1); return; } m_keys.baseOctave = juce::jmin(7, m_keys.baseOctave + 1); m_keys.repaint(); };
     for (auto* k : {&m_stepPage1, &m_stepPage2, &m_octDown, &m_octUp}) addAndMakeVisible(*k);
     m_keys.onNote = [this](int note, bool on) {
+        if (m_makuShown) { makuNote(note, on); return; }
         m_proc.auditionNote(m_track, note, on);
         if (!on) return;
         m_edit.lastNote = note;
@@ -1011,6 +1033,81 @@ void EuclidView::setHint(const juce::String& s)
     m_hint = s;
     repaint(m_hintArea);
     if (m_seqShown) m_seq.showHint(s.toUpperCase());
+    if (m_makuShown) m_maku.setHelp(s.toUpperCase());
+}
+
+// MAKU's keyboard is F3 .. G5: a note outside it plays an octave in. With the kick in focus the white keys are its
+// 16 steps (MAKU's own rule).
+void EuclidView::makuNote(int note, bool on)
+{
+    int k = note - maku::kFirstKeyNote;
+    while (k < 0) k += 12;
+    while (k >= maku::kKeys) k -= 12;
+    const uint32_t bit = 1u << k;
+    const uint32_t keys = on ? (m_mkKeys | bit) : (m_mkKeys & ~bit);
+    if (keys == m_mkKeys) return;
+    m_mkKeys = keys;
+    m_proc.makuCommand({maku::MakuCommand::Keys, int(keys)});
+}
+
+void EuclidView::makuButtons()
+{
+    if (!m_makuShown) return;
+    uint32_t mask = 0;
+    for (int i = 0; i < maku::kNumVerbs; ++i) {
+        const int b = maku::kVerbs[i].button;
+        if (b != maku::BHome && b != maku::BRec && m_pageKeys[size_t(i)]->isDown()) mask |= 1u << b;   // (NEW WORLD, LIKE: a call each)
+    }
+    if (mask == m_mkButtons) return;
+    const uint32_t fresh = mask & ~m_mkButtons;
+    m_mkButtons = mask;
+    m_proc.makuCommand({maku::MakuCommand::Buttons, int(mask)});
+    for (int i = 0; i < maku::kNumVerbs; ++i)
+        if ((fresh >> maku::kVerbs[i].button) & 1u) m_maku.setHelp(maku::kVerbs[i].help);
+}
+
+void EuclidView::showMaku()
+{
+    if (!m_proc.makuAvailable()) return;
+    m_makuShown = true;
+    m_seqShown = false;
+    m_synth.setVisible(false);
+    m_seq.setVisible(false);
+    m_maku.setVisible(true);
+    for (juce::Component* c : {static_cast<juce::Component*>(&m_seed), static_cast<juce::Component*>(&m_loop), static_cast<juce::Component*>(&m_evolve),
+                               static_cast<juce::Component*>(&m_root), static_cast<juce::Component*>(&m_scale), static_cast<juce::Component*>(&m_run),
+                               static_cast<juce::Component*>(&m_dice)})
+        c->setVisible(false);
+    for (int i = 0; i < NumEncPages; ++i) m_pageKeys[size_t(i)]->setButtonText(maku::kVerbs[i].key);
+    static const char* const parts[6] = {"Pulse", "Floor", "Haze", "Voice", "-", "-"};
+    for (int t = 0; t < 6; ++t) { m_trackKeys[size_t(t)]->setButtonText(parts[t]); m_trackKeys[size_t(t)]->setEnabled(t < maku::kParts); }
+    m_octDown.setButtonText("Flat");
+    m_octUp.setButtonText("Sharp");
+    m_synthKey.setToggleState(false, juce::dontSendNotification);
+    m_seqKey.setToggleState(false, juce::dontSendNotification);
+    m_makuKey.setToggleState(true, juce::dontSendNotification);
+    m_maku.tick();
+    m_boundPage = -1;
+    bindEncoders();
+    repaint();
+}
+
+void EuclidView::leaveMaku()
+{
+    if (!m_makuShown) return;
+    m_makuShown = false;
+    m_maku.setVisible(false);
+    if (m_mkKeys) { m_mkKeys = 0; m_proc.makuCommand({maku::MakuCommand::Keys, 0}); }
+    if (m_mkButtons) { m_mkButtons = 0; m_proc.makuCommand({maku::MakuCommand::Buttons, 0}); }
+    for (int i = 0; i < NumEncPages; ++i) m_pageKeys[size_t(i)]->setButtonText(kEncPageNames[i]);
+    for (int t = 0; t < 6; ++t) { m_trackKeys[size_t(t)]->setButtonText("Track " + juce::String(t + 1)); m_trackKeys[size_t(t)]->setEnabled(true); }
+    m_octDown.setButtonText("Oct -");
+    m_octUp.setButtonText("Oct +");
+    m_makuKey.setToggleState(false, juce::dontSendNotification);
+    for (auto& e : m_enc) e.onValueChange = nullptr;
+    for (auto& k : m_pageKeys) k->setLed(0.0f);
+    m_boundPage = -1;
+    selectTrack(m_track);
 }
 
 void EuclidView::selectTrack(int t)
@@ -1034,6 +1131,34 @@ void EuclidView::setEncoderPage(int page)
 
 void EuclidView::bindEncoders()
 {
+    if (m_makuShown) {   // A-D the four parts' levels, E-G the focused part's macros, H MAKU LEVEL
+        const int focus = juce::jlimit(0, maku::kParts - 1, m_maku.ui().focus);
+        if (m_boundPage == -2 && m_boundSlot == focus) return;
+        m_boundPage = -2; m_boundSlot = focus; m_boundTrack = -1;
+        for (int k = 0; k < 8; ++k) {
+            auto& e = m_enc[size_t(k)];
+            m_encAttach[size_t(k)].reset();
+            e.setEnabled(true);
+            if (k == 7) {
+                e.onValueChange = nullptr;
+                m_encAttach[size_t(k)] = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(m_proc.apvts, maku::kLevelId, e);
+                e.getProperties().set("pid", maku::kLevelId);
+                continue;
+            }
+            e.getProperties().set("pid", "");
+            e.setRange(0.0, 127.0, 1.0);
+            e.setDoubleClickReturnValue(false, 0.0);
+            e.setValue(k < 4 ? m_maku.ui().level[size_t(k)] : m_maku.ui().macro[size_t(focus)][size_t(k - 4)], juce::dontSendNotification);
+            e.onValueChange = [this, k] {
+                const int v = int(std::lround(m_enc[size_t(k)].getValue()));
+                const int f = juce::jlimit(0, maku::kParts - 1, m_maku.ui().focus);
+                if (k < 4) m_proc.makuCommand({maku::MakuCommand::Level, k, v});
+                else m_proc.makuCommand({maku::MakuCommand::Macro, f, k - 4, v});
+            };
+        }
+        repaint(m_encArea);
+        return;
+    }
     const int t = m_track;
     const int slot = juce::jlimit(0, spec::kNumMachines - 1, int(std::lround(m_proc.apvts.getRawParameterValue(machineId(t))->load())));
     if (t == m_boundTrack && m_encPage == m_boundPage && slot == m_boundSlot) return;
@@ -1062,6 +1187,13 @@ void EuclidView::bindEncoders()
 
 juce::String EuclidView::encoderLabel(int k) const
 {
+    if (m_makuShown) {
+        const auto& u = m_maku.ui();
+        const int f = juce::jlimit(0, maku::kParts - 1, u.focus);
+        if (k < 4) return u.part[size_t(k)].data();
+        if (k < 7) return u.macroName[size_t(f)][size_t(k - 4)].data();
+        return "LEVEL";
+    }
     const int slot = juce::jlimit(0, spec::kNumMachines - 1, int(std::lround(m_proc.apvts.getRawParameterValue(machineId(m_track))->load())));
     switch (m_encPage) {
     case SynPage: { const auto& p = spec::kMachines[slot].params[k]; return p.display == spec::Display::Blank ? juce::String("-") : juce::String(p.label); }
@@ -1097,6 +1229,7 @@ void EuclidView::resized()
     m_synth.setTopLeftPosition(m_lcd.getX() + (lcdW - m_synth.getWidth()) / 2, m_lcd.getY() + (lcdH - m_synth.getHeight()) / 2);
     m_statusArea = m_lcd.withHeight(kStatusH);
     m_seq.setBounds(m_lcd.getX() + (lcdW - SeqTabPage::kLcdW * kScale) / 2, m_lcd.getY() + kStatusH, SeqTabPage::kLcdW * kScale, SeqTabPage::kLcdH * kScale);
+    m_maku.setBounds(m_seq.getX(), m_lcd.getY(), MakuPage::kLcdW * kScale, MakuPage::kLcdH * kScale);
 
     // status line of the SEQ screen (LCD px from the left of the LCD)
     int x = 66;
@@ -1117,6 +1250,9 @@ void EuclidView::resized()
     const int fy = y0 + 24 + 3 * (kh + 6) + 34;
     hw::HwKey* fn[6] = {&m_synthKey, &m_seqKey, &m_gridKey, &m_recKey, &m_clearKey, &m_captureKey};
     for (int i = 0; i < 6; ++i) fn[i]->setBounds(x0 + (i % 2) * (kw + 10), fy + (i / 2) * (kh + 6), kw, kh);
+    const int my = fy + 3 * (kh + 6) + 34;   // MAKU
+    m_makuKey.setBounds(x0, my, kw, kh);
+    m_makuOnKey.setBounds(x0 + kw + 10, my, kw, kh);
 
     // right: encoders and page keys
     const int rx = m_bezel.getRight() + kGap;
@@ -1177,13 +1313,20 @@ void EuclidView::paint(juce::Graphics& g)
         g.fillRect(x + tw + 8, y + 7, juce::jmax(0, w - tw - 8), 1);
     };
     const int y0 = kMargin + kHeaderH;
-    label("TRACK", kMargin, y0, kLeftW);
+    label(m_makuShown ? "PART" : "TRACK", kMargin, y0, kLeftW);
     label("FUNCTION", kMargin, y0 + 24 + 3 * 72 + 10, kLeftW);
-    label("DATA ENTRY  " + juce::String(kEncPageNames[m_encPage]).toUpperCase() + "  T" + juce::String(m_track + 1), m_encArea.getX(), y0, kRightW);
-    label("PAGE", m_encArea.getX(), y0 + 24 + 2 * 104 + 12, kRightW);
+    label("AMBIENT", kMargin, m_makuKey.getY() - 22, kLeftW);
+    if (m_makuShown) {
+        const int f = juce::jlimit(0, maku::kParts - 1, m_maku.ui().focus);
+        label("DATA ENTRY  MAKU  " + juce::String(m_maku.ui().part[size_t(f)].data()), m_encArea.getX(), y0, kRightW);
+        label("VERBS  (HOLD)", m_encArea.getX(), y0 + 24 + 2 * 104 + 12, kRightW);
+    } else {
+        label("DATA ENTRY  " + juce::String(kEncPageNames[m_encPage]).toUpperCase() + "  T" + juce::String(m_track + 1), m_encArea.getX(), y0, kRightW);
+        label("PAGE", m_encArea.getX(), y0 + 24 + 2 * 104 + 12, kRightW);
+    }
     label("STEP PAGE", kMargin, m_trigArea.getY() - 4, kLeftW);
     label(gridMode() ? "TRIG  -  GRID: WRITE NOTES" : "TRIG  -  EUCLID: HITS AND MUTES", m_trigArea.getX(), m_trigArea.getY() - 18, m_trigArea.getWidth());
-    label("OCTAVE", kMargin, m_keysArea.getY() + 2, kLeftW);
+    label(m_makuShown ? "KEY  FLAT / SHARP" : "OCTAVE", kMargin, m_keysArea.getY() + 2, kLeftW);
 
     // encoder names and values
     for (int k = 0; k < 8; ++k) {
@@ -1192,12 +1335,14 @@ void EuclidView::paint(juce::Graphics& g)
         g.setColour(en ? colour::silk : colour::silkDim);
         g.setFont(font(11.5f, true));
         g.drawText(juce::String::charToString(juce::juce_wchar('A' + k)) + "  " + encoderLabel(k), r.getX() - 8, r.getY() - 18, r.getWidth() + 16, 14, juce::Justification::centred, false);
-        if (en)
-            if (auto* p = m_proc.apvts.getParameter(m_enc[size_t(k)].getProperties()["pid"].toString())) {
-                g.setColour(colour::led.withAlpha(0.95f));
-                g.setFont(font(12.0f, true));
-                g.drawText(p->getCurrentValueAsText().toUpperCase(), r.getX() - 8, r.getBottom() + 2, r.getWidth() + 16, 14, juce::Justification::centred, false);
-            }
+        if (en) {
+            juce::String v;
+            if (auto* p = m_proc.apvts.getParameter(m_enc[size_t(k)].getProperties()["pid"].toString())) v = p->getCurrentValueAsText().toUpperCase();
+            else if (m_makuShown) v = juce::String(int(std::lround(m_enc[size_t(k)].getValue())));
+            g.setColour(colour::led.withAlpha(0.95f));
+            g.setFont(font(12.0f, true));
+            g.drawText(v, r.getX() - 8, r.getBottom() + 2, r.getWidth() + 16, 14, juce::Justification::centred, false);
+        }
     }
 
     // LCD bezel and screen
@@ -1233,12 +1378,28 @@ void EuclidView::paint(juce::Graphics& g)
             g.setColour(colour::led);
             g.drawText("REC  T" + juce::String(m_track + 1) + (gridMode() ? "" : "  (SOLO IN GRID)"), inner.removeFromTop(16.0f).toNearestInt(), juce::Justification::centredLeft, false);
         }
+        if (m_proc.makuAvailable()) {
+            const auto& u = m_maku.ui();
+            const bool on = m_proc.apvts.getRawParameterValue(maku::kOnId)->load() >= 0.5f;
+            inner.removeFromTop(8.0f);
+            g.setColour(on && u.running ? colour::ledGreen : colour::silkDim);
+            g.setFont(font(13.0f, true).withExtraKerningFactor(0.15f));
+            g.drawText(!on ? juce::String("MAKU OFF") : "MAKU  " + juce::String(u.running ? "PLAY" : u.extClock ? "WAITS FOR PLAY" : "STOP"),
+                       inner.removeFromTop(18.0f).toNearestInt(), juce::Justification::centredLeft, false);
+            g.setColour(colour::silkDim);
+            g.setFont(font(11.0f, true).withExtraKerningFactor(0.2f));
+            if (u.world > 0)
+                g.drawText("WORLD " + juce::String(u.world) + "   " + juce::String(mnm::gen::kNoteNames[juce::jlimit(0, 11, u.root)]) + " " + maku::kMakuScaleNames[u.scale & 15]
+                       + "   " + juce::String(u.bpm) + " BPM", inner.removeFromTop(16.0f).toNearestInt(), juce::Justification::centredLeft, false);
+        }
     }
 
     // hint
     g.setColour(colour::silkDim);
     g.setFont(font(12.0f, true));
     const juce::String hint = m_hint.isNotEmpty() ? m_hint
+        : m_makuShown ? juce::String("MAKU: i tasti della pagina sono gesti, tienili premuti (SINK, CASCADE, SWELL, WOBBLE, LIFT, SCRAMBLE), DRIFT lo fa muovere da solo, "
+                                     "NEW WORLD cambia mondo, LIKE lo ricorda. PULSE..VOICE = la parte a fuoco; la tastiera la suona. FLAT/SHARP = tonalita' per quinte.")
         : gridMode() ? juce::String("GRID: click su un tasto trig = nuova nota (o la seleziona); di nuovo = la toglie. Trascina su/giu' = nota, "
                                     "a destra = durata. La tastiera scrive la nota nello step selezionato; con REC avanza da sola.")
                      : juce::String("EUCLID: il sequencer genera ritmo e note. I tasti trig mostrano i colpi (click = mute). "
@@ -1259,6 +1420,7 @@ void EuclidView::paintOverChildren(juce::Graphics& g)
 
 void EuclidView::showSequencer(bool seq)
 {
+    leaveMaku();
     m_seqShown = seq;
     m_synth.setVisible(!seq);
     m_seq.setVisible(seq);
@@ -1268,14 +1430,26 @@ void EuclidView::showSequencer(bool seq)
         c->setVisible(seq);
     m_synthKey.setToggleState(!seq, juce::dontSendNotification);
     m_seqKey.setToggleState(seq, juce::dontSendNotification);
+    bindEncoders();
     repaint();
 }
 
 void EuclidView::timerCallback()
 {
     if (m_synth.selectedTrack() != m_lastSynthTrack) selectTrack(m_synth.selectedTrack());
-    bindEncoders();   // follows a machine change
     if (m_seqShown) m_seq.tick();
+    if (m_makuShown || m_proc.makuAvailable()) m_maku.tick();
+    bindEncoders();   // follows a machine change (MAKU: the focused part)
+    if (m_makuShown) {   // the encoders follow MAKU (DRIFT moves the macros too), except the one in the hand
+        const auto& u = m_maku.ui();
+        const int f = juce::jlimit(0, maku::kParts - 1, u.focus);
+        for (int k = 0; k < 7; ++k) {
+            auto& e = m_enc[size_t(k)];
+            if (e.isMouseButtonDown()) continue;
+            const int v = k < 4 ? u.level[size_t(k)] : u.macro[size_t(f)][size_t(k - 4)];
+            if (int(std::lround(e.getValue())) != v) e.setValue(v, juce::dontSendNotification);
+        }
+    }
 
     auto* gen = m_proc.generator();
     const bool playing = gen && gen->uiPlaying.load();
@@ -1286,6 +1460,28 @@ void EuclidView::timerCallback()
     }
     if (tr != m_transport) { m_transport = tr; repaint(m_transportArea); repaint(m_statusArea); }
 
+    m_makuOnKey.setLed(m_proc.makuAvailable() && m_proc.apvts.getRawParameterValue(maku::kOnId)->load() >= 0.5f ? 1.0f : 0.0f);
+    m_makuKey.setLed(m_makuShown ? 1.0f : 0.0f);
+    if (m_makuShown) {   // MAKU's LEDs: the part in focus, the verbs lit while they act and breathing while they fade
+        const auto& u = m_maku.ui();
+        const float blink = (juce::Time::getMillisecondCounter() / 400) % 2 == 0 ? 1.0f : 0.4f;
+        for (int t = 0; t < 6; ++t)
+            m_trackKeys[size_t(t)]->setLed(t < maku::kParts ? (t == u.focus ? 1.0f : 0.15f * float(u.level[size_t(t)]) / 127.0f) : 0.0f);
+        for (int t = 0; t < 6; ++t) m_trackKeys[size_t(t)]->setToggleState(false, juce::dontSendNotification);
+        for (int i = 0; i < NumEncPages; ++i) {
+            const int b = maku::kVerbs[i].button;
+            float led = ((u.litButtons >> b) & 1u) ? 1.0f : ((u.breathButtons >> b) & 1u) ? 0.45f * blink : 0.0f;
+            if (b == maku::BPlay) led = u.drift ? 1.0f : 0.0f;
+            if (b == maku::BRec) led = u.liked ? 1.0f : 0.0f;
+            if (m_pageKeys[size_t(i)]->isDown()) led = 1.0f;
+            m_pageKeys[size_t(i)]->setToggleState(false, juce::dontSendNotification);
+            m_pageKeys[size_t(i)]->setLed(led);
+        }
+        m_trigs.tick();
+        repaint(m_encArea.withHeight(m_encArea.getHeight() + 10));
+        repaint(m_transportArea);
+        return;
+    }
     // LEDs
     for (int t = 0; t < 6; ++t) {
         const int n = gen ? gen->ui[size_t(t)].trigs.load() : 0;

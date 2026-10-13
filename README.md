@@ -78,23 +78,36 @@ Global (tab bar): **SEED** (DICE picks a new one), **LOOP** (OFF, or the texture
 the plugin's own clock while the host is stopped; the standalone app always does). Notes on **MIDI channel 16**
 transpose every melodic track (latched; C4 = no transposition). Live MIDI on channels 1-6 still plays the tracks.
 
-**GRID mode: notes written by hand.** Each track is either **EUCLID** (the generator decides the hits and notes) or
-**GRID** (press **GRID** on the panel): up to 32 steps, each a trig with its own note and length, written on the 16 trig
-keys under the display. Click an empty key to add a note (the last note and length you used), click a note to select
-it, click it again (or right-click) to remove it. Drag up/down to change the pitch (Shift: an octave), drag right to set
-how long it lasts (the note off, in quarter steps; a note can tie over the following steps). The two-octave keyboard
-plays the track and writes the note into the selected step; with **REC** armed it advances to the next step, so a
-phrase can be typed in note by note, and notes played from a MIDI keyboard are recorded into the playing step while
-the transport runs. **EUC > GRID** copies the current Euclidean pattern into the steps to refine by hand. Chance,
-conditions, ratchets, swing, drift and the lanes work in both modes.
-
-**The panel.** The window is a front panel around the LCD: track keys and function keys (SYNTH, SEQ, GRID, REC,
-CLEAR, EUC > GRID) on the left, eight data entry encoders with page keys (SYN, AMP, FILT, EFX, LFO 1-3, RHYTHM,
-MOTION) on the right, the trig keys and step pages below, and the keyboard with its octave keys at the bottom.
-
 Every random decision is a hash of the seed and the song position, so the same position always plays the same thing:
 a bounce sounds like the playback. The default kit is a ready texture: DPRO BBOX kick and hits, FM+ DYN, a SID bass,
 SWAVE chords and a REVERB on track 6 (fed by track 5).
+
+### MAKU: the ambient generator inside Euclid
+
+Monomodule Euclid also carries **MAKU** ([okumurari2/maku](https://github.com/okumurari2/maku), by okumurari, after
+Leo Kuroshita's Felucca), a generative ambient machine written as firmware for the M-VAVE FM-1, here running as its
+own engine beside the six Monomachine tracks: a kick (**PULSE**), a drone (**FLOOR**), a granular shimmer (**HAZE**)
+and an arpeggiated phrase (**VOICE**), with a new random "world" (sounds, key, macros) at every **NEW WORLD**. The
+Euclidean tracks carry the rhythm and the detail, MAKU the space and the harmony underneath.
+
+* **In time with the DAW**: CLOCK **HOST** sends MAKU the host transport as MIDI clock, on the same grid as the
+  sequencer; it starts on the first bar line after you press play and stops with the transport. **FREE** lets it run
+  on its own tempo.
+* **One key for both**: KEY **SEQ > MAKU** (default) plays MAKU in the sequencer's ROOT and SCALE; **MAKU > SEQ** makes
+  the sequencer follow each world's key; **OFF** keeps them apart. **FLAT / SHARP** move the shared key round the circle
+  of fifths, as MAKU does on its hardware (only the note the key signature changes moves).
+* **The panel plays it**: the **MAKU** key puts MAKU on the LCD (its own colour screen beside the four parts, their
+  LEVEL and three macros each) and turns the panel into MAKU's: TRACK keys 1-4 focus a part, encoders A-D are the
+  part levels, E-G the focused part's macros, H MAKU's level, and the page keys become its **verbs**, held like
+  performance keys: **SINK**, **CASCADE**, **SWELL**, **WOBBLE**, **LIFT**, **SCRAMBLE**, plus **DRIFT** (the macros
+  wander on their own), **NEW WORLD** and **LIKE** (a liked world shapes the next new worlds; the likes and the world
+  playing are saved with the session). The keyboard plays the focused part; with PULSE in focus its white keys are the
+  kick's 16 steps.
+* **Its own output**: MAKU has a stereo bus of its own (**MAKU**, after Track 1-6), folded into the main output when
+  the host leaves it off; **MAKU ON** switches it off entirely (no CPU).
+
+MAKU plays even before the Monomachine OS file is chosen. Its source is in [`ext/maku`](ext/maku/README.md)
+(GPL-3.0-only), built into a library that each plugin instance loads a private copy of.
 
 ## Building from source
 
@@ -139,8 +152,9 @@ The build copies the VST3 plugins to `~/.vst3/`. The standalone versions of One 
 
 ### Windows
 
-Needs Visual Studio 2022 with the **Desktop development with C++** workload. Run these in a *Developer PowerShell for VS
-2022*:
+Needs Visual Studio 2022 with the **Desktop development with C++** workload, and for MAKU in Monomodule Euclid a
+MinGW-w64 `gcc` (for instance from [winlibs](https://winlibs.com) or MSYS2) on `PATH` or in `C:\mingw64\bin`: MSVC does
+not compile MAKU's GNU C. Without it Euclid is built without MAKU. Run these in a *Developer PowerShell for VS 2022*:
 
 ```powershell
 cmake -S . -B build -G "Visual Studio 17 2022" -A x64
@@ -160,6 +174,8 @@ build copies them for you.
 | `MNM_COPY_PLUGINS` | `ON` (`OFF` on Windows) | Copy the plugins to the plugin folders after each build. |
 | `MNM_OS_SYX` | *(empty)* | Path to your OS file. Used by the tests and the command-line tools. |
 | `MNM_DSP56300_DIR` | *(empty)* | Use an existing, already patched dsp56300 checkout instead of downloading one. |
+| `MNM_MAKU` | `ON` | Build MAKU into Monomodule Euclid (needs a GNU C compiler: gcc or clang; MinGW-w64 gcc on Windows). |
+| `MNM_MAKU_CC` | *(empty)* | The C compiler for the MAKU library. Default: the project's C compiler; with MSVC, MinGW-w64 `gcc` from `PATH` or `C:\mingw64\bin`. |
 
 ### Tests
 
@@ -220,7 +236,8 @@ Monomodule is free software: you can redistribute it and/or modify it under the 
 not, must pass on these same rights and make the corresponding source code available.
 
 It is built on [JUCE](https://github.com/juce-framework/JUCE) (AGPLv3) and
-[dsp56300](https://github.com/dsp56300/dsp56300) (GPLv3), among others.
+[dsp56300](https://github.com/dsp56300/dsp56300) (GPLv3), among others. Monomodule Euclid includes
+[MAKU](https://github.com/okumurari2/maku) (GPL-3.0-only, source and licences in [ext/maku](ext/maku/README.md)).
 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md) lists every dependency, its licence and the changes Monomodule makes to
 dsp56300.
 
@@ -233,6 +250,8 @@ Monomodule stands on the work of:
 
 - [dsp56300](https://github.com/dsp56300/dsp56300), the DSP56300 emulator at the heart of the sound engine
 - [JUCE](https://github.com/juce-framework/JUCE), the plugin and UI framework
+- [MAKU](https://github.com/okumurari2/maku) by okumurari and [Felucca](https://github.com/hugelton/Felucca) by Leo
+  Kuroshita (Hügelton Instruments), the ambient generator inside Monomodule Euclid
 - [AsmJit](https://github.com/asmjit/asmjit), the JIT back end of dsp56300
 - [MCL](https://github.com/jmamma/MCL), whose documentation of the Monomachine sysex formats guided the Library's codec
 - [elektron-firmware-tool](https://github.com/mischa85/elektron-firmware-tool), for its work on the Elektron OS file

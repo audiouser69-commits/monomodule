@@ -13,6 +13,7 @@
 #include "host/Machines.h"
 #include "Lcd.h"
 #include "EuclidParams.h"
+#include "MakuHost.h"
 
 namespace mnm::plugin::one { using host::FxInput; using host::kFxInputNames; }
 
@@ -202,7 +203,7 @@ inline juce::AudioProcessorValueTreeState::ParameterLayout createLayout(Variant 
     // when sync is off (drag or type it in the header).
     layout.add(std::make_unique<juce::AudioParameterBool>(juce::ParameterID{bpmSyncId(), 1}, "BPM sync to host", true));
     layout.add(std::make_unique<juce::AudioParameterFloat>(juce::ParameterID{bpmId(), 1}, "BPM", 30.0f, 300.0f, 120.0f));
-    if (variant == Variant::Euclid) euclid::addLayout(layout);
+    if (variant == Variant::Euclid) { euclid::addLayout(layout); maku::addLayout(layout); }
     return layout;
 }
 

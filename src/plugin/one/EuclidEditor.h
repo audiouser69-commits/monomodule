@@ -209,6 +209,44 @@ private:
     juce::Rectangle<int> m_helpArea;
 };
 
+// MAKU on the LCD (MakuPage.cpp): its own 240 x 240 colour screen as it draws it, the four parts (name, the voice the
+// world gave it, LEVEL and its three macros: drag or wheel to change, click the name to focus it), the world (key,
+// tempo, seed, likes) and its settings in the status line (CLOCK, KEY link, LEVEL, ON); NEW WORLD, LIKE, FLAT and
+// SHARP as LCD buttons. The panel around it plays the verbs (EuclidView).
+class MakuPage : public juce::Component {
+public:
+    static constexpr int kLcdW = SeqTabPage::kLcdW, kLcdH = 14 + SeqTabPage::kLcdH;
+    explicit MakuPage(MnmOneProcessor& p);
+    void tick();   // timer: a fresh copy of MAKU's state
+    const maku::MakuUi& ui() const { return m_ui; }
+    void setHelp(const juce::String& s) { if (s != m_help) { m_help = s; repaint(); } }
+    std::function<void(int part)> onFocus;
+    void paint(juce::Graphics&) override;
+    void resized() override;
+    void mouseDown(const juce::MouseEvent&) override;
+    void mouseDrag(const juce::MouseEvent&) override;
+    void mouseUp(const juce::MouseEvent&) override;
+    void mouseMove(const juce::MouseEvent&) override;
+    void mouseExit(const juce::MouseEvent&) override { m_hover = -1; setHelp({}); repaint(); }
+    void mouseWheelMove(const juce::MouseEvent&, const juce::MouseWheelDetails&) override;
+    static void fifth(MnmOneProcessor& p, int dir);   // FLAT / SHARP: the shared key round the circle of fifths
+private:
+    int cellAt(juce::Point<int> local) const;          // part * 8 + column (0 name, 1 level, 2..4 macros), -1 none
+    juce::Rectangle<int> cellRect(int cell) const;      // in LCD px
+    int cellValue(int cell) const;
+    void setCellValue(int cell, int v);
+    juce::String helpOf(int cell) const;
+    MnmOneProcessor& m_proc;
+    maku::MakuUi m_ui;
+    juce::Image m_screen{juce::Image::RGB, maku::kScreen, maku::kScreen, true};
+    uint32_t m_screenSerial = ~0u;
+    SeqField m_clock, m_key, m_level, m_on;
+    LcdButton m_newWorld{"NEW WORLD"}, m_like{"LIKE"}, m_flat{"FLAT"}, m_sharp{"SHARP"};
+    int m_hover = -1, m_drag = -1, m_dragStart = 0, m_dragValue = -1;
+    float m_wheel = 0.0f;
+    juce::String m_help;
+};
+
 // The window's content: a hardware-style front panel. The LCD in the middle shows Six's pages (SYNTH) or the sequencer
 // (SEQ); around it the track keys, the function keys (SYNTH, SEQ, GRID, REC, CLEAR), eight data entry encoders with
 // their page keys, the 16 trig keys and a two-octave keyboard.
@@ -222,6 +260,9 @@ public:
     void childBoundsChanged(juce::Component*) override;
     void showSequencer(bool seq);
     bool sequencerShown() const { return m_seqShown; }
+    void showMaku();                     // MAKU on the LCD, the panel playing it
+    bool makuShown() const { return m_makuShown; }
+    MakuPage& makuPage() { return m_maku; }
     void selectTrack(int t);
     int selectedTrack() const { return m_track; }
     void setEncoderPage(int page);
@@ -240,6 +281,9 @@ private:
     void setMode(bool grid);
     void writeNote(int note, bool advance);
     void setHint(const juce::String& s);
+    void leaveMaku();                    // the panel back to the tracks (labels, held keys let go)
+    void makuButtons();                  // the verb keys held now -> MAKU's buttons
+    void makuNote(int note, bool on);
     static constexpr int kMargin = 26, kHeaderH = 64, kLeftW = 176, kRightW = 320, kGap = 18, kBezel = 16;
     static constexpr int kStatusH = 14 * kScale, kTrigH = 128, kKeysH = 100;
 
@@ -247,13 +291,15 @@ private:
     OneLookAndFeel m_lnf;
     OneEditor m_synth;
     SeqTabPage m_seq;
+    MakuPage m_maku;
     SeqField m_seed, m_loop, m_evolve, m_root, m_scale, m_run;
     LcdButton m_dice{"DICE"};
     GridEdit m_edit;
 
     std::array<std::unique_ptr<hw::HwKey>, 6> m_trackKeys;
     hw::HwKey m_synthKey{"Synth", hw::colour::ledGreen}, m_seqKey{"Seq", hw::colour::ledGreen}, m_gridKey{"Grid", hw::colour::ledAmber},
-              m_recKey{"Rec"}, m_clearKey{"Clear"}, m_captureKey{"Euc > Grid", hw::colour::ledAmber};
+              m_recKey{"Rec"}, m_clearKey{"Clear"}, m_captureKey{"Euc > Grid", hw::colour::ledAmber},
+              m_makuKey{"Maku", hw::colour::ledGreen}, m_makuOnKey{"Maku On", hw::colour::ledGreen};
     std::array<std::unique_ptr<hw::HwKey>, NumEncPages> m_pageKeys;
     hw::HwKey m_stepPage1{"1 - 16"}, m_stepPage2{"17 - 32"}, m_octDown{"Oct -"}, m_octUp{"Oct +"};
     std::array<hw::HwEncoder, 8> m_enc;
@@ -262,7 +308,8 @@ private:
     hw::HwKeyboard m_keys;
 
     juce::Rectangle<int> m_lcd, m_bezel, m_trigArea, m_keysArea, m_encArea, m_transportArea, m_hintArea, m_statusArea;
-    bool m_seqShown = true;
+    bool m_seqShown = true, m_makuShown = false;
+    uint32_t m_mkKeys = 0, m_mkButtons = 0;   // MAKU: its keyboard keys and buttons held from the panel
     int m_track = 0, m_encPage = SynPage, m_lastSynthTrack = 0, m_boundTrack = -1, m_boundPage = -1, m_boundSlot = -1;
     std::array<int, 6> m_lastTrigs{};
     std::array<float, 6> m_trackFlash{};

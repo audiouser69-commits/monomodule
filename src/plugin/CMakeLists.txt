@@ -96,7 +96,7 @@ juce_add_plugin(MnmEuclid
   HARDENED_RUNTIME_OPTIONS ${MNM_HARDENED_OPTS}
   MICROPHONE_PERMISSION_ENABLED FALSE)
 
-set(MNM_ONE_SOURCES one/OneProcessor.cpp one/EuclidEditor.cpp one/EuclidPanel.cpp one/OneEditor.cpp one/MachinePicker.cpp one/LibraryUi.cpp one/Lcd.cpp one/SkinDialog.cpp one/SpecData.cpp one/RomArt.cpp)
+set(MNM_ONE_SOURCES one/OneProcessor.cpp one/EuclidEditor.cpp one/EuclidPanel.cpp one/MakuHost.cpp one/MakuPage.cpp one/OneEditor.cpp one/MachinePicker.cpp one/LibraryUi.cpp one/Lcd.cpp one/SkinDialog.cpp one/SpecData.cpp one/RomArt.cpp)
 target_sources(MnmOne PRIVATE one/OneFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
 target_sources(MnmSix PRIVATE one/SixFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
 target_sources(MnmFx PRIVATE one/FxFactory.cpp ${MNM_ONE_SOURCES} Overlays.cpp)
@@ -110,6 +110,50 @@ foreach(t MnmOne MnmSix MnmFx MnmEuclid)
     PUBLIC juce::juce_recommended_config_flags juce::juce_recommended_warning_flags)
 endforeach()
 
+# MAKU (ext/maku, GPL-3.0-only): the ambient generator inside Monomodule Euclid. Its firmware C is built as a shared
+# library of its own with a GNU C compiler (gcc or clang; on Windows MinGW-w64 gcc, as MSVC does not take GNU C99),
+# then embedded in the plugin (MakuData), which loads a private copy of it per instance (one/MakuHost.*).
+option(MNM_MAKU "Build MAKU into Monomodule Euclid" ON)
+set(MNM_MAKU_CC "" CACHE FILEPATH "GNU C compiler for the MAKU library (default: the C compiler; MSVC: MinGW-w64 gcc from PATH)")
+set(mnm_maku_ok FALSE)
+if(MNM_MAKU)
+  set(mnm_maku_cc "${MNM_MAKU_CC}")
+  if(NOT mnm_maku_cc)
+    if(MSVC)
+      find_program(mnm_maku_gcc NAMES x86_64-w64-mingw32-gcc gcc PATHS C:/mingw64/bin C:/msys64/mingw64/bin C:/ProgramData/mingw64/mingw64/bin)
+      set(mnm_maku_cc "${mnm_maku_gcc}")
+    else()
+      set(mnm_maku_cc "${CMAKE_C_COMPILER}")
+    endif()
+  endif()
+  if(mnm_maku_cc)
+    set(mnm_maku_dir ${CMAKE_SOURCE_DIR}/ext/maku)
+    set(mnm_maku_lib ${CMAKE_CURRENT_BINARY_DIR}/maku/maku_library.bin)
+    set(mnm_maku_flags -O2 -std=gnu99 -w -ffp-contract=off -shared -I${mnm_maku_dir}/gen -I${mnm_maku_dir}/firmware/src)
+    if(WIN32)
+      list(APPEND mnm_maku_flags -I${mnm_maku_dir}/plugin/compat -static -static-libgcc)
+    elseif(APPLE)
+      list(APPEND mnm_maku_flags -fPIC -mmacosx-version-min=${CMAKE_OSX_DEPLOYMENT_TARGET})
+      foreach(a ${CMAKE_OSX_ARCHITECTURES})
+        list(APPEND mnm_maku_flags -arch ${a})
+      endforeach()
+    else()
+      list(APPEND mnm_maku_flags -fPIC)
+    endif()
+    file(GLOB_RECURSE mnm_maku_sources CONFIGURE_DEPENDS ${mnm_maku_dir}/*.c ${mnm_maku_dir}/*.h)
+    add_custom_command(OUTPUT ${mnm_maku_lib}
+      COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_CURRENT_BINARY_DIR}/maku
+      COMMAND ${mnm_maku_cc} ${mnm_maku_flags} ${mnm_maku_dir}/plugin/maku_plugin.c -o ${mnm_maku_lib} -lm
+      DEPENDS ${mnm_maku_sources}
+      COMMENT "MAKU library (${mnm_maku_cc})"
+      VERBATIM)
+    juce_add_binary_data(MnmMakuData NAMESPACE MakuData HEADER_NAME MakuData.h SOURCES ${mnm_maku_lib})
+    set(mnm_maku_ok TRUE)
+    message(STATUS "MAKU: built into Monomodule Euclid with ${mnm_maku_cc}")
+  else()
+    message(WARNING "MAKU: no GNU C compiler found (set MNM_MAKU_CC to a MinGW-w64 gcc); Monomodule Euclid is built without it")
+  endif()
+endif()
 # Offscreen editor renderer for UI review (a development tool, not installed)
 juce_add_console_app(MnmUiSnapshot PRODUCT_NAME "mnm-uisnapshot")
 target_sources(MnmUiSnapshot PRIVATE UiSnapshot.cpp Overlays.cpp ${MNM_ONE_SOURCES})
@@ -128,6 +172,15 @@ target_compile_definitions(MnmCapture PRIVATE JUCE_WEB_BROWSER=0 JUCE_USE_CURL=0
   JUCE_MODAL_LOOPS_PERMITTED=0 JucePlugin_VersionString="${PROJECT_VERSION}"
   JucePlugin_Name="Monomodule" JUCE_STANDALONE_APPLICATION=1 MNM_SOURCE_DIR="${CMAKE_SOURCE_DIR}")
 target_link_libraries(MnmCapture PRIVATE mnmcore mnmlibrary juce::juce_audio_utils juce::juce_cryptography juce::juce_recommended_config_flags)
+# MAKU: in Euclid (and the tools that build its processor); the other plugins compile MakuHost without it
+foreach(t MnmEuclid MnmUiSnapshot MnmCapture)
+  if(mnm_maku_ok)
+    target_link_libraries(${t} PRIVATE MnmMakuData)
+    target_compile_definitions(${t} PRIVATE MNM_HAS_MAKU=1)
+  else()
+    target_compile_definitions(${t} PRIVATE MNM_HAS_MAKU=0)
+  endif()
+endforeach()
 if(MNM_BUILD_TESTS)
   # Monomodule FX must pass THRU flat: its filters must not track the effect's fixed trig note (issue #5). Needs the
   # OS file (MNM_OS or -DMNM_OS_SYX=...), else reported as skipped, like the unit tests.
@@ -141,4 +194,9 @@ if(MNM_BUILD_TESTS)
   # bypass and (with the OS file) THRU really do
   add_test(NAME preview-resampling COMMAND MnmCapture --check-preview)
   add_test(NAME reported-latency COMMAND MnmCapture --check-latency)
+  # MAKU inside Euclid: plays on its bus under a host transport (48 kHz), takes the host's tempo and the sequencer's
+  # key, and keeps its world and likes in the session
+  if(mnm_maku_ok)
+    add_test(NAME maku-integration COMMAND MnmUiSnapshot --maku-check)
+  endif()
 endif()

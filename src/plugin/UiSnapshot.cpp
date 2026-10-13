@@ -103,6 +103,118 @@ int main(int argc, char** argv)
         ed.reset();
         return 0;
     }
+    if (argc >= 3 && juce::String(argv[1]) == "--euclid-maku") {
+        // --euclid-maku <out.png>: the MAKU page after 12 s of host play at 92 BPM (the HAZE part in focus, SWELL held)
+        using namespace mnm::plugin::one;
+        MnmOneProcessor proc(Variant::Euclid);
+        struct Head : juce::AudioPlayHead {
+            juce::AudioPlayHead::PositionInfo info;
+            juce::Optional<PositionInfo> getPosition() const override { return info; }
+        } head;
+        proc.setPlayHead(&head);
+        proc.enableAllBuses();
+        proc.prepareToPlay(44100.0, 441);
+        juce::AudioBuffer<float> buf(proc.getTotalNumOutputChannels(), 441);
+        juce::MidiBuffer midi;
+        double ppq = 0.0;
+        std::unique_ptr<juce::AudioProcessorEditor> ed(proc.createEditor());
+        auto* sv = dynamic_cast<scale::ScaledEditor*>(ed.get());
+        auto* view = sv ? dynamic_cast<EuclidView*>(&sv->view()) : nullptr;
+        for (int i = 0; i < 1200; ++i) {
+            if (i == 900) { proc.makuCommand({maku::MakuCommand::Focus, 2}); proc.makuCommand({maku::MakuCommand::Buttons, 1 << maku::BEnv}); }
+            head.info.setIsPlaying(true); head.info.setBpm(92.0); head.info.setPpqPosition(ppq);
+            head.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
+            buf.clear();
+            proc.processBlock(buf, midi);
+            ppq += 441 * 92.0 / 60.0 / 44100.0;
+        }
+        if (view) {
+            view->showMaku();
+            view->makuPage().tick();
+            view->makuPage().tick();
+            ed->setSize(view->getWidth(), view->getHeight());
+            save(*view, juce::File(juce::String(argv[2])));
+        }
+        ed.reset();
+        proc.setPlayHead(nullptr);
+        return 0;
+    }
+    if (argc >= 2 && juce::String(argv[1]) == "--maku-check") {
+        // --maku-check [out.wav]: MAKU inside Euclid at 48 kHz (the resampled path) under a host transport at 123 BPM
+        // from bar 1: it must play on its own bus, take the host's tempo and the sequencer's key, and its world and
+        // likes must survive a session save and reload (prints OK / FAIL)
+        using namespace mnm::plugin::one;
+        MnmOneProcessor proc(Variant::Euclid);
+        if (!proc.makuAvailable()) { std::printf("FAIL maku: %s\n", proc.makuError().toRawUTF8()); return 1; }
+        struct Head : juce::AudioPlayHead {
+            juce::AudioPlayHead::PositionInfo info;
+            juce::Optional<PositionInfo> getPosition() const override { return info; }
+        } head;
+        proc.setPlayHead(&head);
+        const double rate = std::getenv("MK_RATE") ? std::atof(std::getenv("MK_RATE")) : 48000.0, bpm = 123.0;
+        const int block = 480;
+        proc.enableAllBuses();
+        proc.prepareToPlay(rate, block);
+        if (auto* r = proc.apvts.getParameter(euclid::gid("root"))) r->setValueNotifyingHost(r->convertTo0to1(9.0f));   // A
+        if (auto* sc = proc.apvts.getParameter(euclid::gid("scale"))) sc->setValueNotifyingHost(sc->convertTo0to1(3.0f));   // DORIAN
+        const int buses = proc.getBusCount(false);
+        juce::AudioBuffer<float> buf(proc.getTotalNumOutputChannels(), block);
+        juce::MidiBuffer midi;
+        juce::AudioBuffer<float> rec(2, int(rate * 16));
+        double ppq = 0.0, makuEnergy = 0.0, otherEnergy = 0.0;
+        int pos = 0;
+        for (int i = 0; pos + block <= rec.getNumSamples(); ++i, pos += block) {
+            head.info.setIsPlaying(true);
+            head.info.setBpm(bpm);
+            head.info.setPpqPosition(ppq);
+            head.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
+            buf.clear();
+            proc.processBlock(buf, midi);
+            auto mk = proc.getBusBuffer(buf, false, buses - 1);
+            for (int c = 0; c < 2; ++c) rec.copyFrom(c, pos, mk, c, 0, block);
+            for (int k = 0; k < block; ++k) makuEnergy += double(mk.getSample(0, k)) * mk.getSample(0, k);
+            for (int b = 0; b + 1 < buses; ++b) { auto o = proc.getBusBuffer(buf, false, b); otherEnergy += o.getRMSLevel(0, 0, block); }
+            ppq += block * bpm / 60.0 / rate;
+        }
+        maku::MakuUi ui;
+        proc.makuUi(ui);
+        const double rms = std::sqrt(makuEnergy / pos);
+        bool ok = rms > 0.003 && ui.running && std::abs(ui.bpm - 123) <= 1 && ui.root == 9 && ui.scale == 3 && otherEnergy == 0.0;
+        std::printf("%s maku: buses %d, rms %.4f, peak %.3f, running %d, bpm %d, key %d/%s, voices %s / %s / %s, world %d\n", ok ? "OK" : "FAIL",
+                    buses, rms, rec.getMagnitude(0, pos), int(ui.running), ui.bpm, ui.root, maku::kMakuScaleNames[ui.scale & 15],
+                    ui.voice[1].data(), ui.voice[2].data(), ui.voice[3].data(), ui.world);
+        if (argc > 2) {
+            juce::WavAudioFormat wav;
+            juce::File f(argv[2]);
+            f.deleteFile();
+            if (auto w = std::unique_ptr<juce::AudioFormatWriter>(wav.createWriterFor(new juce::FileOutputStream(f), rate, 2, 24, {}, 0)))
+                w->writeFromAudioSampleBuffer(rec, 0, pos);
+        }
+        // state: the world and the likes (the transport stopped)
+        head.info.setIsPlaying(false);
+        proc.makuCommand({maku::MakuCommand::Like});
+        proc.makuCommand({maku::MakuCommand::Macro, 2, 1, 17});
+        buf.clear(); proc.processBlock(buf, midi);
+        for (int i = 0; i < 100; ++i) { buf.clear(); proc.processBlock(buf, midi); }
+        proc.makuUi(ui);
+        juce::MemoryBlock state;
+        proc.getStateInformation(state);
+        MnmOneProcessor other(Variant::Euclid);
+        other.setPlayHead(&head);
+        other.enableAllBuses();
+        other.prepareToPlay(rate, block);
+        other.setStateInformation(state.getData(), int(state.getSize()));
+        for (int i = 0; i < 100; ++i) { buf.clear(); other.processBlock(buf, midi); }
+        maku::MakuUi u2;
+        other.makuUi(u2);
+        const bool same = juce::String(ui.voice[1].data()) == u2.voice[1].data() && juce::String(ui.voice[3].data()) == u2.voice[3].data()
+                          && u2.macro[2][1] == 17 && u2.likes == 1 && ui.likes == 1 && ui.seed == u2.seed;
+        std::printf("%s maku state: likes %d -> %d, haze tone %d -> %d, seed %u -> %u\n", same ? "OK" : "FAIL", ui.likes, u2.likes,
+                    ui.macro[2][1], u2.macro[2][1], ui.seed, u2.seed);
+        proc.setPlayHead(nullptr);
+        other.setPlayHead(nullptr);
+        return ok && same ? 0 : 1;
+    }
     if (argc == 2 && juce::String(argv[1]) == "--euclid-state") {
         // --euclid-state: GRID steps and hand mutes survive a session save and reload (prints OK / FAIL)
         using namespace mnm::plugin::one;

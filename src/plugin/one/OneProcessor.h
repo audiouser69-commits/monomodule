@@ -85,6 +85,15 @@ public:
     void setRecord(bool armed, int track) { m_recTrack.store(track); m_recArmed.store(armed); }
     bool recordArmed() const { return m_recArmed.load(); }
     bool popRecorded(RecordedNote& out);
+    // MAKU (Euclid): the ambient generator beside the six tracks (MakuHost.h). The editor reads makuUi() and sends
+    // makuCommand(); both are safe from the message thread. Its audio has a stereo bus of its own after the tracks
+    // ("MAKU"), folded into the main output when the host leaves that bus off.
+    bool makuAvailable() const { return m_maku && m_maku->available(); }
+    juce::String makuError() const { return m_maku ? m_maku->error() : juce::String(); }
+    void makuUi(maku::MakuUi& out) const;   // false available when there is no MAKU
+    void makuCommand(const maku::MakuCommand& c);
+    float makuPeak() const { return m_makuPeak.load(); }
+
     int lockValue(int t, int target) const { return m_tracks[size_t(t)]->lock[size_t(target)].load(); }   // -1 = no lock
     float trackPeak(int t) const { return m_tracks[size_t(t)]->peak.load(); }   // linear, pre-mute, decays between UI polls
     float outputPeak() const { return trackPeak(0); }
@@ -190,6 +199,9 @@ private:
     void pushParamFromCC(Track&, host::Page page, int k, int value);
     void processChunk(juce::AudioBuffer<float>&, int offset, int n);
     void runGenerator(const juce::Optional<juce::AudioPlayHead::PositionInfo>& pos, const juce::MidiBuffer& midi, int n);
+    void scheduleMakuClock(const mnm::gen::Transport& tr, int n);
+    void renderMaku(int64_t firstFrame, int nEngine);
+    void followMakuKey();   // message thread: MAKU > SEQ
     static bool isLockSysex(const juce::MidiMessage& m);
     void fillSideChain(int offset, int n, int64_t firstFrame, int nEngine);
     void renderTrack(Track&, int64_t firstFrame, int nEngine);
@@ -270,6 +282,33 @@ private:
     std::atomic<int> m_recTrack{0};
     juce::AbstractFifo m_recFifo{64};
     std::array<RecordedNote, 64> m_recBuffer{};
+
+    // MAKU (Euclid). The library is called from the audio thread only, or with m_engineLock held (state).
+    std::unique_ptr<maku::MakuLib> m_maku;
+    std::atomic<float>* m_mkOn = nullptr;
+    std::atomic<float>* m_mkLevel = nullptr;
+    std::atomic<float>* m_mkClock = nullptr;
+    std::atomic<float>* m_mkKey = nullptr;
+    std::vector<float> m_makuL, m_makuR;        // this chunk at 44.1 kHz
+    std::array<dsp::History, 2> m_makuHist;
+    int m_makuFrames = 0;                       // rendered in the last chunk (0: silent)
+    std::atomic<float> m_makuPeak{0.0f};
+    float m_makuGain = 0.0f;                    // smoothed
+    struct MakuEvent { int64_t frame; int status; };
+    std::array<MakuEvent, 256> m_mkEvents{};    // clock bytes by engine frame, this block
+    int m_mkEventCount = 0, m_mkEventNext = 0;
+    bool m_mkExtClock = false, m_mkRunning = false, m_mkWasOn = true;
+    int64_t m_mkNextPulse = 0;                  // the 1/24 quarter pulse expected next (host ppq * 24)
+    int m_mkLastSeqKey = -1;                    // SEQ > MAKU: the key last given to MAKU
+    juce::AbstractFifo m_mkFifo{256};
+    std::array<maku::MakuCommand, 256> m_mkCommands{};
+    juce::CriticalSection m_mkCommandLock;      // (writers: the editor, the state)
+    mutable juce::SpinLock m_mkUiLock;
+    std::unique_ptr<maku::MakuUi> m_mkUi;       // the copy the editor reads
+    uint32_t m_mkUiDraws = 0;
+    int64_t m_mkUiAt = 0;
+    std::atomic<int> m_mkKeyNow{-1};            // MAKU's key, root | scale << 8 (for MAKU > SEQ)
+    struct KeyFollower : juce::Timer { MnmOneProcessor* p = nullptr; void timerCallback() override { p->followMakuKey(); } } m_mkFollower;
 };
 
 } // namespace mnm::plugin::one

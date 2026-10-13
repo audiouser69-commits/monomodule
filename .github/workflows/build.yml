@@ -38,9 +38,21 @@ jobs:
         if: matrix.platform == 'macos'
         run: brew install ninja
 
+      # MAKU (Monomodule Euclid) is GNU C: on Windows it is built with MinGW-w64 gcc beside MSVC
+      - name: MinGW-w64 gcc for MAKU (Windows)
+        if: matrix.platform == 'windows'
+        shell: bash
+        run: |
+          if [ -x /c/mingw64/bin/gcc.exe ]; then
+            echo "MAKU_CC=C:/mingw64/bin/gcc.exe" >> "$GITHUB_ENV"
+          else
+            choco install mingw -y --no-progress
+            echo "MAKU_CC=C:/ProgramData/mingw64/mingw64/bin/gcc.exe" >> "$GITHUB_ENV"
+          fi
+
       - name: Configure
         shell: bash
-        run: cmake -S . -B build -G "${{ matrix.generator }}" ${{ matrix.extra }} -DCMAKE_BUILD_TYPE=Release -DMNM_COPY_PLUGINS=OFF
+        run: cmake -S . -B build -G "${{ matrix.generator }}" ${{ matrix.extra }} -DCMAKE_BUILD_TYPE=Release -DMNM_COPY_PLUGINS=OFF -DMNM_MAKU_CC="${MAKU_CC:-}"
 
       - name: Build
         run: cmake --build build --config Release --parallel
