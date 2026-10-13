@@ -52,6 +52,8 @@ The plugin's library panel opens the Library app from these locations.
 
 ## Monomodule Euclid
 
+Manuale utente in italiano (sequencer, GRID, MAKU, MIX, implementazione MIDI): [docs/Monomodule-Euclid-Manuale.pdf](docs/Monomodule-Euclid-Manuale.pdf).
+
 Monomodule Six plus a generative sequencer, in one plugin: a **SEQUENCER** tab beside the usual pages (**SYNTH**).
 It plays the six tracks with notes and **p-locks** (a lock holds a knob at a value until the track's next trig, as
 on the hardware), locked to the host transport sample by sample. Every setting is a host parameter, so it can be
