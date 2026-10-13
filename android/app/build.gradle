@@ -6,8 +6,8 @@ android {
     namespace 'world.shnolk.mnm.bench'
     compileSdk 34
     // the NDK the build machine has (GitHub's runners: ANDROID_NDK_LATEST_HOME), else the SDK's default one
-    def ndk = System.getenv('ANDROID_NDK_LATEST_HOME')
-    if (ndk) ndkPath ndk
+    def ndkHome = System.getenv('ANDROID_NDK_LATEST_HOME')
+    if (ndkHome) ndkPath ndkHome
     defaultConfig {
         applicationId 'world.shnolk.mnm.bench'
         minSdk 28            // AAudio
