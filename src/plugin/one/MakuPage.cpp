@@ -245,9 +245,9 @@ void MakuPage::paint(juce::Graphics& g)
         auto name = cellRect(part * 8);
         if (focus) cv.fillRect(name.getX(), name.getY(), name.getWidth() - 2, name.getHeight());
         cv.text(bold(), (juce::String(part + 1) + " " + juce::String(m_ui.part[size_t(part)].data())).toRawUTF8(), name.getX() + 2, y + 2, !focus);
-        cv.text(tiny(), fit(tiny(), juce::String(m_ui.voice[size_t(part)].data()).isEmpty() ? juce::String(kPartRole[part]) : juce::String(m_ui.voice[size_t(part)].data()),
-                            kNameW - 5).toRawUTF8(), name.getX() + 2, y + 13, !focus);
-        cv.text(tiny(), kPartRole[part], name.getX() + 2, y + 20, !focus);
+        const juce::String voice(m_ui.voice[size_t(part)].data());   // (none for the kick: its role alone)
+        if (voice.isNotEmpty()) cv.text(tiny(), fit(tiny(), voice, kNameW - 5).toRawUTF8(), name.getX() + 2, y + 13, !focus);
+        cv.text(tiny(), kPartRole[part], name.getX() + 2, voice.isNotEmpty() ? y + 20 : y + 13, !focus);
         if (m_hover == part * 8 && !focus) cv.dotsH(name.getX(), name.getRight() - 3, name.getBottom() - 1);
         for (int col = 1; col <= 4; ++col) {
             const auto r = cellRect(part * 8 + col);

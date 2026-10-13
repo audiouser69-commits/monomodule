@@ -104,7 +104,7 @@ int main(int argc, char** argv)
         return 0;
     }
     if (argc >= 3 && juce::String(argv[1]) == "--euclid-maku") {
-        // --euclid-maku <out.png>: the MAKU page after 12 s of host play at 92 BPM (the HAZE part in focus, SWELL held)
+        // --euclid-maku <out.png>: the MAKU page after 12 s of host play at 92 BPM (the PULSE part in focus, SWELL held)
         using namespace mnm::plugin::one;
         MnmOneProcessor proc(Variant::Euclid);
         struct Head : juce::AudioPlayHead {
@@ -121,7 +121,7 @@ int main(int argc, char** argv)
         auto* sv = dynamic_cast<scale::ScaledEditor*>(ed.get());
         auto* view = sv ? dynamic_cast<EuclidView*>(&sv->view()) : nullptr;
         for (int i = 0; i < 1200; ++i) {
-            if (i == 900) { proc.makuCommand({maku::MakuCommand::Focus, 2}); proc.makuCommand({maku::MakuCommand::Buttons, 1 << maku::BEnv}); }
+            if (i == 900) { proc.makuCommand({maku::MakuCommand::Focus, 0}); proc.makuCommand({maku::MakuCommand::Buttons, 1 << maku::BEnv}); }
             head.info.setIsPlaying(true); head.info.setBpm(92.0); head.info.setPpqPosition(ppq);
             head.info.setTimeSignature(juce::AudioPlayHead::TimeSignature{4, 4});
             buf.clear();
