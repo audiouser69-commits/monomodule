@@ -44,3 +44,26 @@ jobs:
         with:
           name: monomodule-bench-android
           path: MonomoduleBench.apk
+
+  # the APK as a release asset too (one tap to download on the phone): a pre-release, never "latest"
+  publish:
+    needs: apk
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v8
+        with:
+          name: monomodule-bench-android
+      - uses: softprops/action-gh-release@v3
+        with:
+          tag_name: android-bench
+          target_commitish: ${{ github.sha }}
+          name: Monomodule Bench (Android, test di carico)
+          prerelease: true
+          make_latest: false
+          body: |
+            Test di carico per Android: misura quante tracce Monomachine emulate e MAKU regge il telefono, prima del porting completo.
+            Scarica MonomoduleBench.apk dal telefono, aprilo e consenti l'installazione da questa fonte. Serve Android 9 o più recente, ARM a 64 bit.
+            Poi: 1) scegli il file OS della Monomachine, 2) Misura, 3) Ascolta.
+          files: MonomoduleBench.apk
