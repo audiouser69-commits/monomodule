@@ -68,13 +68,22 @@ jobs:
           name: monomodule-${{ matrix.platform }}
           path: dist/*.zip
 
+  # A release: on a version tag (v1.2.3), or on a push to main whose commit message holds [release] (the tag is then
+  # created here, named from the file RELEASE_VERSION)
   release:
-    if: startsWith(github.ref, 'refs/tags/v')
+    if: startsWith(github.ref, 'refs/tags/v') || (github.event_name == 'push' && contains(github.event.head_commit.message, '[release]'))
     needs: build
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
+      - uses: actions/checkout@v7
+      - name: Version
+        id: v
+        shell: bash
+        run: |
+          if [[ "$GITHUB_REF" == refs/tags/* ]]; then echo "tag=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          else echo "tag=$(tr -d ' \r\n' < RELEASE_VERSION)" >> "$GITHUB_OUTPUT"; fi
       - uses: actions/download-artifact@v8
         with:
           path: dist
@@ -83,7 +92,9 @@ jobs:
         with:
           draft: false
           prerelease: false
-          name: Monomodule Euclid ${{ github.ref_name }}
+          tag_name: ${{ steps.v.outputs.tag }}
+          target_commitish: ${{ github.sha }}
+          name: Monomodule Euclid ${{ steps.v.outputs.tag }}
           body: |
             Monomodule Euclid: the emulated Monomachine (six tracks), the generative Euclidean sequencer with GRID mode,
             and MAKU, the ambient generator, linked to it (shared key, CHORD, gestures, MIX page and routing).
