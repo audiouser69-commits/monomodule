@@ -69,6 +69,9 @@ MnmOneProcessor::MnmOneProcessor(Variant variant)
         m_mkLevel = apvts.getRawParameterValue(maku::kLevelId);
         m_mkClock = apvts.getRawParameterValue(maku::kClockId);
         m_mkKey = apvts.getRawParameterValue(maku::kKeyId);
+        m_mkChord = apvts.getRawParameterValue(maku::kChordId);
+        m_mkVerbs = apvts.getRawParameterValue(maku::kVerbsId);
+        m_mkFeed = apvts.getRawParameterValue(maku::kFeedId);
         m_mkUi = std::make_unique<maku::MakuUi>();
         m_maku = std::make_unique<maku::MakuLib>();
         if (m_maku->available()) {
@@ -844,7 +847,7 @@ void MnmOneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             const bool playing = m_gen && m_gen->uiPlaying.load();
             for (const auto meta : midi) {
                 auto msg = meta.getMessage();
-                if (msg.isNoteOnOrOff() && msg.getChannel() != 16) {
+                if (msg.isNoteOnOrOff() && msg.getChannel() < maku::kMidiFirstPartChannel) {   // (11-15: MAKU's, 16: transpose)
                     msg.setChannel(rt + 1);
                     if (msg.isNoteOn()) {
                         int s1, n1, s2, n2;
@@ -858,6 +861,7 @@ void MnmOneProcessor::processBlock(juce::AudioBuffer<float>& buffer, juce::MidiB
             midi.swapWith(routed);
         }
     }
+    if (isEuclid()) makuBlockStart(midi);
     // each event waits for its engine frame: the first at or after host sample s's engine time, s * 44100 / rate
     for (const auto meta : midi) {
         const auto msg = meta.getMessage();
@@ -928,7 +932,17 @@ void MnmOneProcessor::runGenerator(const juce::Optional<juce::AudioPlayHead::Pos
         m_freePpq = 0.0;
     }
     m_seqBind.read(m_genParams, m_stepMask, m_grid);
+    m_genParams.link = {};
+    if (makuAvailable() && m_mkOn->load() >= 0.5f) {   // MAKU > SEQ: its chord, its gestures
+        auto& lk = m_genParams.link;
+        lk.chordMask = m_mkChordNow;
+        lk.chord = int(std::lround(m_mkChord->load()));
+        const float depth = m_mkVerbs->load() / 100.0f;
+        lk.sink = m_mkVerbNow[0] * depth; lk.cascade = m_mkVerbNow[1] * depth; lk.swell = m_mkVerbNow[2] * depth;
+        lk.wobble = m_mkVerbNow[3] * depth; lk.lift = m_mkVerbNow[4] * depth; lk.scramble = m_mkVerbNow[5] * depth;
+    }
     m_gen->process(tr, m_genParams);
+    const int feed = makuAvailable() && m_mkOn->load() >= 0.5f ? int(std::lround(m_mkFeed->load())) : 0;   // SEQ > MAKU: notes
     for (int i = 0; i < m_gen->numEvents(); ++i) {
         if (m_midi.size() >= kMaxPendingMidi) break;
         const auto& e = m_gen->event(i);
@@ -936,6 +950,7 @@ void MnmOneProcessor::runGenerator(const juce::Optional<juce::AudioPlayHead::Pos
         // after every queued event due at or before this frame (the queue is in frame order; ties keep their order)
         const auto at = std::upper_bound(m_midi.begin(), m_midi.end(), frame, [](int64_t f, const PendingMidi& p) { return f < p.frame; });
         m_midi.insert(at, PendingMidi{frame, juce::MidiMessage(e.data, int(e.size), 0.0)});   // short messages: no allocation
+        if (feed > 0 && e.size == 3 && e.data[0] == uint8_t(0x90 | (feed - 1)) && e.data[2] > 0) pushMaku(frame, MkLearn, e.data[1]);
     }
     scheduleMakuClock(tr, n);
 }
@@ -947,21 +962,68 @@ void MnmOneProcessor::runGenerator(const juce::Optional<juce::AudioPlayHead::Pos
 // (so MAKU and the Euclidean tracks share one grid), START on the first bar line after the transport begins (MAKU's
 // kick and its 16 steps are a bar), STOP when it stops. A jump (a loop, a locate) carries on from the new place: MAKU
 // keeps its phrase going rather than starting over. The bytes wait in m_mkEvents for their engine frames.
-void MnmOneProcessor::scheduleMakuClock(const mnm::gen::Transport& tr, int n)
+void MnmOneProcessor::pushMaku(int64_t frame, int kind, int a, int b, int c)
 {
-    // events of the last block still waiting for their frame (the engine trails the host when it converts rates)
+    if (m_mkEventCount < int(m_mkEvents.size())) m_mkEvents[size_t(m_mkEventCount++)] = {frame, kind, a, b, c};
+}
+
+// A block begins: the events still waiting for their frame move to the front (the engine trails the host when it
+// converts rates), then the DAW's MIDI for MAKU: notes on channels 11-15, the verb keys as CC on channel 15.
+void MnmOneProcessor::makuBlockStart(const juce::MidiBuffer& midi)
+{
     const int left = m_mkEventCount - m_mkEventNext;
     for (int i = 0; i < left; ++i) m_mkEvents[size_t(i)] = m_mkEvents[size_t(m_mkEventNext + i)];
     m_mkEventCount = juce::jmax(0, left);
     m_mkEventNext = 0;
+    if (!makuAvailable() || m_mkOn->load() < 0.5f) return;
+    for (const auto meta : midi) {
+        const auto msg = meta.getMessage();
+        const int ch = msg.getChannel();
+        if (ch < maku::kMidiFirstPartChannel || ch > maku::kMidiFocusChannel) continue;
+        const int64_t frame = engineFrameOf(m_hostPos + meta.samplePosition);
+        const bool focus = ch == maku::kMidiFocusChannel;
+        const int part = focus ? 4 : ch - maku::kMidiFirstPartChannel;
+        if (msg.isNoteOn()) pushMaku(frame, MkNote, part, msg.getNoteNumber(), msg.getVelocity() | (focus ? 0x100 : 0));
+        else if (msg.isNoteOff()) pushMaku(frame, MkNote, part, msg.getNoteNumber(), 0);
+        else if (focus && msg.isController()) {
+            const int cc = msg.getControllerNumber();
+            const bool high = msg.getControllerValue() >= 64, rose = high && !m_mkCcHigh[size_t(cc)];
+            m_mkCcHigh[size_t(cc)] = high;
+            if (cc >= maku::kMidiVerbCC && cc < maku::kMidiVerbCC + 7) {   // SINK .. SCRAMBLE, DRIFT: held
+                uint32_t mask = 0;
+                for (int i = 0; i < 7; ++i) if (m_mkCcHigh[size_t(maku::kMidiVerbCC + i)]) mask |= 1u << maku::kVerbs[i].button;
+                pushMaku(frame, MkMidiButtons, int(mask));
+            } else if (cc == maku::kMidiVerbCC + 7 && rose) pushMaku(frame, MkNewWorld);
+            else if (cc == maku::kMidiVerbCC + 8 && rose) pushMaku(frame, MkLike);
+        }
+    }
+}
+
+void MnmOneProcessor::makuApplyButtons()
+{
+    const uint32_t b = m_mkPanelButtons | m_mkMidiButtons;
+    if (b != m_mkSentButtons) { m_mkSentButtons = b; m_maku->buttons(b); }
+}
+
+void MnmOneProcessor::scheduleMakuClock(const mnm::gen::Transport& tr, int n)
+{
     if (!makuAvailable()) return;
     if (m_mkOn->load() < 0.5f) { m_mkRunning = false; return; }   // (asleep: it starts again at a bar)
-    const bool ext = m_mkClock->load() < 0.5f;
-    if (ext != m_mkExtClock) { m_maku->clockMode(ext); m_mkExtClock = ext; m_mkRunning = false; m_mkEventCount = 0; }
-    if (!ext) return;
-    auto push = [this](double hostSample, int status) {
-        if (m_mkEventCount < int(m_mkEvents.size())) m_mkEvents[size_t(m_mkEventCount++)] = {engineFrameOf(m_hostPos + int64_t(hostSample)), status};
-    };
+    const auto clock = maku::Clock(juce::jlimit(0, 2, int(std::lround(m_mkClock->load()))));
+    const bool ext = clock == maku::Clock::Host;
+    // (a byte of the other clock that still waits is ignored by MAKU: it reads the clock of its own mode only)
+    if (ext != m_mkExtClock) { m_maku->clockMode(ext); m_mkExtClock = ext; m_mkRunning = false; m_mkTempoSent = 0; }
+    struct Sorted { MnmOneProcessor* p; int from; ~Sorted() {   // clock bytes among the DAW's notes: in frame order
+        std::stable_sort(p->m_mkEvents.begin() + from, p->m_mkEvents.begin() + p->m_mkEventCount,
+                         [](const MakuEvent& a, const MakuEvent& b) { return a.frame < b.frame; }); } } sorted{this, m_mkEventNext};
+    if (!ext) {
+        if (clock == maku::Clock::FreeHostTempo) {   // its own clock, always running, at the host's tempo
+            const int bpm = juce::jlimit(40, 240, int(std::lround(m_hostBpm.load())));
+            if (bpm != m_mkTempoSent) { m_mkTempoSent = bpm; m_maku->setTempo(bpm); }
+        }
+        return;
+    }
+    auto push = [this](double hostSample, int status) { pushMaku(engineFrameOf(m_hostPos + int64_t(hostSample)), MkRealtime, status); };
     if (!tr.playing) {
         if (m_mkRunning) push(0.0, 0xFC);
         m_mkRunning = false;
@@ -1000,7 +1062,7 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
         auto run = [this](const maku::MakuCommand& c) {
             using Op = maku::MakuCommand::Op;
             switch (c.op) {
-            case Op::Buttons: m_maku->buttons(uint32_t(c.a)); break;
+            case Op::Buttons: m_mkPanelButtons = uint32_t(c.a); makuApplyButtons(); break;
             case Op::Keys: m_maku->keys(uint32_t(c.a)); break;
             case Op::Focus: m_maku->setFocus(c.a); break;
             case Op::Level: m_maku->setLevel(c.a, c.b); break;
@@ -1015,7 +1077,7 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
         for (int i = 0; i < n2; ++i) run(m_mkCommands[size_t(s2 + i)]);
         m_mkFifo.finishedRead(n1 + n2);
     }
-    if (m_mkOn->load() < 0.5f) { m_mkWasOn = false; m_makuPeak.store(m_makuPeak.load() * 0.8f); return; }
+    if (m_mkOn->load() < 0.5f) { m_mkWasOn = false; m_mkChordNow = 0; m_mkVerbNow = {}; m_makuPeak.store(m_makuPeak.load() * 0.8f); return; }
     if (!m_mkWasOn) { m_mkWasOn = true; m_makuGain = 0.0f; }
 
     // the key: SEQ > MAKU gives MAKU the sequencer's ROOT and SCALE (a fifth away: MAKU's own change of key signature,
@@ -1037,7 +1099,18 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
     float gain = m_makuGain, pk = m_makuPeak.load() * 0.8f;
     for (int pos = 0; pos < nEngine;) {
         while (m_mkEventNext < m_mkEventCount && m_mkEvents[size_t(m_mkEventNext)].frame <= firstFrame + pos)
-            m_maku->realtime(m_mkEvents[size_t(m_mkEventNext++)].status);
+        {
+            const auto& ev = m_mkEvents[size_t(m_mkEventNext++)];
+            switch (ev.kind) {
+            case MkRealtime: m_maku->realtime(ev.a); break;
+            case MkNote: m_maku->note(ev.a, ev.b, ev.c & 0x7F, (ev.c & 0x100) != 0); break;
+            case MkLearn: m_maku->learn(ev.a); break;
+            case MkMidiButtons: m_mkMidiButtons = uint32_t(ev.a); makuApplyButtons(); break;
+            case MkNewWorld: m_maku->newWorld(); break;
+            case MkLike: m_maku->like(); break;
+            default: break;
+            }
+        }
         int end = nEngine;
         if (m_mkEventNext < m_mkEventCount) end = int(juce::jlimit<int64_t>(pos + 1, nEngine, m_mkEvents[size_t(m_mkEventNext)].frame - firstFrame));
         const int c = juce::jmin(end - pos, 1024);
@@ -1056,6 +1129,8 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
     m_makuGain = gain;
     m_makuPeak.store(pk);
     m_makuFrames = nEngine;
+    m_mkChordNow = m_maku->chordMask();   // the link for the sequencer's next block
+    for (int i = 0; i < 6; ++i) m_mkVerbNow[size_t(i)] = m_maku->verbAmount(i);
 
     // the editor's copy, ~25 times a second
     m_mkUiAt += nEngine;
@@ -1086,6 +1161,8 @@ void MnmOneProcessor::renderMaku(int64_t firstFrame, int nEngine)
             u.litButtons = m_maku->litButtons();
             u.breathButtons = m_maku->breathButtons();
             u.litKeys = m_maku->litKeys();
+            u.chordMask = m_mkChordNow;
+            u.verb = m_mkVerbNow;
             for (int i = 0; i < maku::kParts; ++i) {
                 u.level[size_t(i)] = m_maku->level(i);
                 name(u.part[size_t(i)], m_maku->partName(i));

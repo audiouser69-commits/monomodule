@@ -240,7 +240,7 @@ private:
     maku::MakuUi m_ui;
     juce::Image m_screen{juce::Image::RGB, maku::kScreen, maku::kScreen, true};
     uint32_t m_screenSerial = ~0u;
-    SeqField m_clock, m_key, m_level, m_on;
+    SeqField m_clock, m_key, m_level, m_on, m_chord, m_verbs, m_feed;   // (the last three: the link)
     LcdButton m_newWorld{"NEW WORLD"}, m_like{"LIKE"}, m_flat{"FLAT"}, m_sharp{"SHARP"};
     int m_hover = -1, m_drag = -1, m_dragStart = 0, m_dragValue = -1;
     float m_wheel = 0.0f;

@@ -103,6 +103,15 @@ Euclidean tracks carry the rhythm and the detail, MAKU the space and the harmony
   wander on their own), **NEW WORLD** and **LIKE** (a liked world shapes the next new worlds; the likes and the world
   playing are saved with the session). The keyboard plays the focused part; with PULSE in focus its white keys are the
   kick's 16 steps.
+* **The two engines listen to each other**: **CHORD** moves that share of the Euclidean tracks' melodic notes to the
+  nearest note of the chord MAKU's FLOOR is playing; **VERBS > SEQ** lets MAKU's gestures move the sequencer too (SINK
+  thins the tracks, the drums most; CASCADE rolls the melodies upward; SWELL lengthens the gates; WOBBLE loosens the
+  timing; LIFT lifts notes an octave; SCRAMBLE breaks rhythm and pitch), as deep as the setting says; **FEED** sends one
+  Euclidean track's notes into MAKU's VOICE phrase, which picks them up and plays them back in its own time.
+* **From the DAW**: MIDI channels 11-14 play PULSE, FLOOR, HAZE and VOICE; channel 15 plays the part in focus (its notes
+  melt into VOICE, as the keyboard's do), and its CC 102-107 hold SINK..SCRAMBLE, 108 is DRIFT's key, 109 NEW WORLD and
+  110 LIKE (value 64 or more = pressed), so the gestures can be automated. CLOCK **HOST BPM** runs MAKU on its own clock
+  at the host's tempo, also while the transport is stopped.
 * **Its own output**: MAKU has a stereo bus of its own (**MAKU**, after Track 1-6), folded into the main output when
   the host leaves it off; **MAKU ON** switches it off entirely (no CPU).
 

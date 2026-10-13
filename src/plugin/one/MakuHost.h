@@ -44,6 +44,14 @@ inline const char* kLevelId = "mklevel";
 inline const char* kClockId = "mkclock";    // 0 HOST (MIDI clock from the host transport), 1 FREE (MAKU's own tempo)
 inline const char* kKeyId = "mkkey";        // 0 SEQ > MAKU, 1 MAKU > SEQ, 2 OFF (each its own key)
 enum class KeyLink { SeqToMaku = 0, MakuToSeq, Off };
+enum class Clock { Host = 0, Free, FreeHostTempo };   // kClockId: HOST, FREE, FREE at the host's tempo (HOST BPM)
+// the link MAKU > sequencer (gen::Link) and sequencer / DAW > MAKU
+inline const char* kChordId = "mkchord";    // 0..100 %: melodic EUCLID notes moved to MAKU's chord
+inline const char* kVerbsId = "mkverbs";    // 0..100 %: how far MAKU's gestures move the sequencer too
+inline const char* kFeedId = "mkfeed";      // 0 OFF, 1..6: that track's notes melt into MAKU's VOICE phrase
+// MIDI from the DAW: channels 11-14 play PULSE..VOICE, 15 the part in focus (and its notes melt into VOICE);
+// on channel 15 CC 102-107 hold SINK..SCRAMBLE, 108 is DRIFT's key, 109 NEW WORLD, 110 LIKE (each >= 64 = pressed)
+constexpr int kMidiFirstPartChannel = 11, kMidiFocusChannel = 15, kMidiVerbCC = 102;
 void addLayout(juce::AudioProcessorValueTreeState::ParameterLayout& layout);
 
 // The library. Missing (a build without MAKU, or a file that would not load): available() is false and the plugin
@@ -62,6 +70,11 @@ public:
     int keyGet() const;                     // root | scale << 8 (MAKU scale)
     void keySet(int root, int scale);
     void fifth(int dir);
+    void note(int part, int note, int velocity, bool learn);   // part 0..3, 4 = in focus; velocity 0 = off
+    void learn(int note);                   // melts into the VOICE phrase without playing
+    void setTempo(int bpm);                 // MAKU's own clock
+    uint16_t chordMask() const;             // FLOOR's chord now, pitch classes
+    float verbAmount(int i) const;          // 0..1, i: SINK CASCADE SWELL WOBBLE LIFT SCRAMBLE
     void buttons(uint32_t mask);
     void keys(uint32_t mask);
     int focus() const;
@@ -113,6 +126,8 @@ struct MakuUi {
     using Name = std::array<char, 24>;      // (no allocation on the audio thread)
     std::array<Name, kParts> part{}, voice{};
     std::array<std::array<Name, 3>, kParts> macroName{};
+    uint16_t chordMask = 0;
+    std::array<float, 6> verb{};           // the upper verbs' amounts now
     uint32_t screenSerial = 0;
     std::array<uint16_t, kScreen * kScreen> screen{};
 };

@@ -200,6 +200,9 @@ private:
     void processChunk(juce::AudioBuffer<float>&, int offset, int n);
     void runGenerator(const juce::Optional<juce::AudioPlayHead::PositionInfo>& pos, const juce::MidiBuffer& midi, int n);
     void scheduleMakuClock(const mnm::gen::Transport& tr, int n);
+    void makuBlockStart(const juce::MidiBuffer& midi);   // the last block's waiting events first, then the DAW's MIDI for MAKU
+    void pushMaku(int64_t frame, int kind, int a = 0, int b = 0, int c = 0);
+    void makuApplyButtons();
     void renderMaku(int64_t firstFrame, int nEngine);
     void followMakuKey();   // message thread: MAKU > SEQ
     static bool isLockSysex(const juce::MidiMessage& m);
@@ -289,12 +292,23 @@ private:
     std::atomic<float>* m_mkLevel = nullptr;
     std::atomic<float>* m_mkClock = nullptr;
     std::atomic<float>* m_mkKey = nullptr;
+    std::atomic<float>* m_mkChord = nullptr;
+    std::atomic<float>* m_mkVerbs = nullptr;
+    std::atomic<float>* m_mkFeed = nullptr;
+    uint32_t m_mkPanelButtons = 0, m_mkMidiButtons = 0, m_mkSentButtons = 0;
+    std::array<bool, 128> m_mkCcHigh{};         // the DAW's CC on channel 15 last above 63 (edges)
+    uint16_t m_mkChordNow = 0;                  // the link, read after each render (audio thread)
+    std::array<float, 6> m_mkVerbNow{};
+    int m_mkTempoSent = 0;
     std::vector<float> m_makuL, m_makuR;        // this chunk at 44.1 kHz
     std::array<dsp::History, 2> m_makuHist;
     int m_makuFrames = 0;                       // rendered in the last chunk (0: silent)
     std::atomic<float> m_makuPeak{0.0f};
     float m_makuGain = 0.0f;                    // smoothed
-    struct MakuEvent { int64_t frame; int status; };
+    // what reaches MAKU at an engine frame: a clock byte, a note (a part, b note, c velocity | 0x100 learn), a note it
+    // only learns (a), the DAW's verb keys (a mask), NEW WORLD, LIKE
+    enum MakuKind : int { MkRealtime, MkNote, MkLearn, MkMidiButtons, MkNewWorld, MkLike };
+    struct MakuEvent { int64_t frame; int kind, a, b, c; };
     std::array<MakuEvent, 256> m_mkEvents{};    // clock bytes by engine frame, this block
     int m_mkEventCount = 0, m_mkEventNext = 0;
     bool m_mkExtClock = false, m_mkRunning = false, m_mkWasOn = true;

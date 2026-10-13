@@ -267,3 +267,59 @@ TEST_CASE(gen_grid_mode_keeps_chance_and_transpose)
     CHECK(ons.size() > 16 && ons.size() < 48);   // about half of 64
     for (const auto& e : ons) CHECK(e.d1 >= 60 && e.d1 < 76);   // transposed up an octave
 }
+
+TEST_CASE(gen_link_chord_moves_notes_into_the_chord)
+{
+    auto gp = oneTrack();
+    gp.root = 0; gp.scale = 1;   // C major
+    auto& t = gp.tracks[0];
+    t.pulses = 16; t.pitchMode = PitchMode::Random; t.low = 48; t.high = 84;
+    gp.link.chordMask = (1 << 2) | (1 << 5) | (1 << 9);   // D F A
+    gp.link.chord = 100;
+    Generator g;
+    auto ons = noteOns(run(g, gp, 16.0));
+    CHECK(ons.size() >= 60);
+    for (const auto& e : ons) { CHECK((gp.link.chordMask >> (e.d1 % 12)) & 1); CHECK(e.d1 >= 48 && e.d1 <= 84); }
+    gp.link.chord = 50;   // half of them: some notes stay off the chord
+    Generator h;
+    int off = 0;
+    for (const auto& e : noteOns(run(h, gp, 16.0))) off += !((gp.link.chordMask >> (e.d1 % 12)) & 1);
+    CHECK(off > 0);
+    CHECK_EQ(nearestChordNote(60, 1 << 7, 0, 127), 55);   // the nearer G (5 below, not 7 above)
+    CHECK_EQ(nearestChordNote(60, (1 << 2) | (1 << 10), 0, 127), 58);   // a tie (D up 2, Bb down 2): down
+    CHECK_EQ(nearestChordNote(50, 1 << 7, 52, 127), 55);   // the one inside the range
+}
+
+TEST_CASE(gen_link_off_changes_nothing_and_verbs_act)
+{
+    auto gp = oneTrack();
+    auto& t = gp.tracks[0];
+    t.pulses = 8; t.pitchMode = PitchMode::Turing; t.low = 48; t.high = 72; t.prob = 90;
+    Generator a, b;
+    const auto base = run(a, gp, 16.0);
+    gp.link.chordMask = 0x91; gp.link.chord = 0;   // a chord, no CHORD: as before
+    const auto same = run(b, gp, 16.0);
+    CHECK_EQ(base.size(), same.size());
+    for (size_t i = 0; i < base.size() && i < same.size(); ++i) { CHECK_EQ(base[i].d1, same[i].d1); CHECK(std::abs(base[i].ppq - same[i].ppq) < 1e-9); }
+    // SINK: fewer hits on the drums
+    auto drums = oneTrack();
+    drums.tracks[0].pulses = 16;
+    Generator c, d;
+    const size_t full = noteOns(run(c, drums, 16.0)).size();
+    drums.link.sink = 1.0f;
+    const size_t sunk = noteOns(run(d, drums, 16.0)).size();
+    CHECK(sunk < full / 2);
+    // CASCADE: melodic trigs roll upward
+    gp.link = {};
+    gp.link.cascade = 1.0f;
+    Generator e;
+    const size_t rolled = noteOns(run(e, gp, 16.0)).size();
+    CHECK(rolled > noteOns(base).size() * 3 / 2);
+    // LIFT: some notes an octave above the range
+    gp.link = {};
+    gp.link.lift = 1.0f;
+    Generator f;
+    int high = 0;
+    for (const auto& n : noteOns(run(f, gp, 16.0))) high += n.d1 > 72;
+    CHECK(high > 0);
+}

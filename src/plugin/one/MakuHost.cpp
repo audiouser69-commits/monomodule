@@ -57,7 +57,12 @@ void addLayout(juce::AudioProcessorValueTreeState::ParameterLayout& layout)
         juce::ParameterID{kLevelId, 1}, "MAKU LEVEL", juce::NormalisableRange<float>(-60.0f, 24.0f, 0.5f), 9.0f,
         juce::AudioParameterFloatAttributes().withStringFromValueFunction([](float v, int) {
             return v <= -60.0f ? juce::String("OFF") : (v > 0 ? "+" : "") + juce::String(v, 1) + " DB"; })));
-    g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kClockId, 1}, "MAKU CLOCK", juce::StringArray{"HOST", "FREE"}, 0));
+    g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kClockId, 1}, "MAKU CLOCK", juce::StringArray{"HOST", "FREE", "HOST BPM"}, 0));
+    auto pct = juce::AudioParameterIntAttributes().withStringFromValueFunction([](int v, int) { return juce::String(v) + "%"; });
+    g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kChordId, 1}, "MAKU CHORD", 0, 100, 40, pct));
+    g->addChild(std::make_unique<juce::AudioParameterInt>(juce::ParameterID{kVerbsId, 1}, "MAKU VERBS > SEQ", 0, 100, 70, pct));
+    g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kFeedId, 1}, "MAKU FEED",
+                                                             juce::StringArray{"OFF", "T1", "T2", "T3", "T4", "T5", "T6"}, 0));
     g->addChild(std::make_unique<juce::AudioParameterChoice>(juce::ParameterID{kKeyId, 1}, "MAKU KEY", juce::StringArray{"SEQ > MAKU", "MAKU > SEQ", "OFF"}, 0));
     layout.add(std::move(g));
 }
@@ -110,6 +115,11 @@ struct MakuLib::Fns {
     uint32_t (*likes_unpack)(const uint8_t*, uint32_t) = nullptr;
     uint32_t (*world_pack)(uint8_t*) = nullptr;
     uint32_t (*world_apply)(const uint8_t*, uint32_t) = nullptr;
+    uint32_t (*note)(uint32_t, uint32_t, uint32_t, uint32_t) = nullptr;
+    void (*learn)(uint32_t) = nullptr;
+    void (*bpm_set)(uint32_t) = nullptr;
+    uint32_t (*chord_mask)() = nullptr;
+    uint32_t (*verb_amount)(uint32_t) = nullptr;
 };
 
 namespace {
@@ -161,7 +171,9 @@ MakuLib::MakuLib() : m_fn(std::make_unique<Fns>())
     get(f.seed, "mk_seed"); get(f.new_world, "mk_new_world"); get(f.like, "mk_like"); get(f.likes_clear, "mk_likes_clear"); get(f.likes, "mk_likes"); get(f.liked, "mk_liked");
     get(f.likes_pack, "mk_likes_pack"); get(f.likes_unpack, "mk_likes_unpack"); get(f.world_pack, "mk_world_pack");
     get(f.world_apply, "mk_world_apply");
-    if (!all || f.api_version() != 1) { m_error = "MAKU: library does not match this plugin"; m_lib.reset(); m_file.deleteFile(); return; }
+    get(f.note, "mk_note"); get(f.learn, "mk_learn"); get(f.bpm_set, "mk_bpm_set"); get(f.chord_mask, "mk_chord_mask");
+    get(f.verb_amount, "mk_verb_amount");
+    if (!all || f.api_version() != 2) { m_error = "MAKU: library does not match this plugin"; m_lib.reset(); m_file.deleteFile(); return; }
     m_ok = true;
 #else
     m_error = "MAKU: not in this build";
@@ -195,6 +207,11 @@ void MakuLib::clockMode(bool external) { if (m_ok) m_fn->clock_mode(external ? 1
 int MakuLib::keyGet() const { return m_ok ? int(m_fn->key_get()) : 0; }
 void MakuLib::keySet(int root, int scale) { if (m_ok) m_fn->key_set(uint32_t(root), uint32_t(scale)); }
 void MakuLib::fifth(int dir) { if (m_ok) m_fn->fifth(dir); }
+void MakuLib::note(int part, int n, int velocity, bool learn) { if (m_ok) m_fn->note(uint32_t(juce::jlimit(0, 4, part)), uint32_t(n & 127), uint32_t(juce::jlimit(0, 127, velocity)), learn ? 1u : 0u); }
+void MakuLib::learn(int n) { if (m_ok) m_fn->learn(uint32_t(n & 127)); }
+void MakuLib::setTempo(int bpm) { if (m_ok) m_fn->bpm_set(uint32_t(juce::jlimit(40, 240, bpm))); }
+uint16_t MakuLib::chordMask() const { return m_ok ? uint16_t(m_fn->chord_mask() & 0xFFF) : uint16_t(0); }
+float MakuLib::verbAmount(int i) const { return m_ok ? float(m_fn->verb_amount(uint32_t(i))) / 4096.0f : 0.0f; }
 void MakuLib::buttons(uint32_t mask) { if (m_ok) m_fn->buttons(mask); }
 void MakuLib::keys(uint32_t mask) { if (m_ok) m_fn->keys(mask); }
 int MakuLib::focus() const { return m_ok ? int(m_fn->focus_get()) : 0; }

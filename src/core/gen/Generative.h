@@ -111,7 +111,20 @@ struct TrackParams {
     std::array<LaneParams, kLanes> lanes{};
 };
 
+// What another engine playing beside the sequencer feeds into it (Monomodule Euclid: MAKU). Live, not part of the
+// song: the decisions it changes still come from the seed, so the same position with the same link plays the same.
+struct Link {
+    uint16_t chordMask = 0;   // pitch classes of the chord heard now (bit n = n semitones above C), 0 = none
+    int chord = 0;            // % of the melodic EUCLID notes moved to the nearest note of that chord
+    // the gestures held now, 0..1 each: SINK thins (the drums most), CASCADE adds rising ratchets, SWELL lengthens the
+    // gates, WOBBLE loosens the timing, LIFT lifts melodic notes an octave, SCRAMBLE breaks rhythm and pitch
+    float sink = 0.0f, cascade = 0.0f, swell = 0.0f, wobble = 0.0f, lift = 0.0f, scramble = 0.0f;
+    bool active() const { return (chordMask && chord > 0) || sink > 0 || cascade > 0 || swell > 0 || wobble > 0 || lift > 0 || scramble > 0; }
+};
+int nearestChordNote(int note, uint16_t chordMask, int low, int high);   // the chord note nearest note, inside [low, high] if one is
+
 struct GlobalParams {
+    Link link;
     int seed = 1;
     int loop = 0;             // index into kLoopBars
     int evolve = 0;           // % per loop step per cycle

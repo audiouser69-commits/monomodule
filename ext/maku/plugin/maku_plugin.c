@@ -15,7 +15,7 @@
 
 #define MK EXPORT
 
-MK uint32_t mk_api_version(void) { return 1; }
+MK uint32_t mk_api_version(void) { return 2; }
 
 /* clock: 1 = follow MIDI clock (the host's transport, through mk_realtime), 0 = MAKU's own tempo, running */
 MK void mk_clock_mode(uint32_t ext)
@@ -36,21 +36,83 @@ MK void mk_render(uint32_t n)
  * 0xFC stop. Its time stamp is the millisecond of the last frame rendered, not the device's clock (which runs up to an
  * I2S half ahead of what has been handed out): the pulses keep the host's spacing, and the tempo MAKU measures from
  * them stays steady */
-MK uint32_t mk_realtime(uint32_t status)
+static uint32_t mk_enqueue(uint32_t pkt)
 {
     uint32_t at = mi_w % MQ;
-    if (status < 0xF8u || status > 0xFFu || midi_in_overflow)
+    if (midi_in_overflow)
         return 0;
     if (mi_w - mi_r >= MQ) {
         midi_in_overflow = 1;
         return 0;
     }
-    midi_in_q[at] = 0xFu | status << 8;
+    midi_in_q[at] = pkt;
     midi_in_ms[at] = (uint32_t)(mk_frames * 1000u / FS);
     midi_in_source[at] = 1u;
     RING_PUBLISH();
     mi_w++;
     return 1;
+}
+MK uint32_t mk_realtime(uint32_t status)
+{
+    if (status < 0xF8u || status > 0xFFu)
+        return 0;
+    return mk_enqueue(0xFu | status << 8);
+}
+
+/* a note for part (0..3; 4 = the part in focus), velocity 0 = off, as MIDI on that part's channel (midi_control.c).
+ * learn: the note also melts into the VOICE phrase, as a key played on the panel does (maku.c maku_pick) */
+MK uint32_t mk_note(uint32_t part, uint32_t note, uint32_t vel, uint32_t learn)
+{
+    uint32_t ch = part < 4u ? part : song.sel % 4u, st = (vel ? 0x90u : 0x80u) | ch;
+    if (learn && vel && maku.on)
+        maku_pick(note & 127u);
+    return mk_enqueue((st >> 4) | st << 8 | (note & 127u) << 16 | (vel & 127u) << 24);
+}
+/* only melts into the VOICE phrase (the sequencer's notes: MAKU hears them, does not play them now) */
+MK void mk_learn(uint32_t note)
+{
+    if (maku.on)
+        maku_pick(note & 127u);
+}
+
+/* the tempo of MAKU's own clock (FREE at the host's tempo); MIDI clock leaves it alone */
+MK void mk_bpm_set(uint32_t bpm)
+{
+    if (!song.g[G_CLOCK])
+        song.g[G_BPM] = (int16_t)clamp((int32_t)bpm, GP[G_BPM].min, GP[G_BPM].max);
+}
+
+/* the pitch classes of the chord the FLOOR played last (bit n = n semitones above C), its root's triad before one */
+MK uint32_t mk_chord_mask(void)
+{
+    static uint32_t last;
+    const step_t *c = &maku_cur[MAKU_DRA];
+    uint32_t m = 0, i;
+    for (i = 0; i < c->n && i < 4u; i++)
+        m |= 1u << (c->note[i] % 12u);
+    if (m)
+        last = m;
+    if (!last) {
+        uint32_t r = (uint32_t)trk[MAKU_DRA].p[P_ROOT] % 12u, mask = scale_mask(&trk[MAKU_DRA]), k, d = 0;
+        for (k = 0; k < 12u && d < 5u; k++)                     /* the 1st, 3rd and 5th degree of the scale */
+            if ((mask >> k) & 1u) {
+                if (d == 0u || d == 2u || d == 4u)
+                    m |= 1u << ((r + k) % 12u);
+                d++;
+            }
+        return m;
+    }
+    return last;
+}
+/* how far each upper verb acts now, 0..4096: SINK CASCADE SWELL WOBBLE LIFT SCRAMBLE (the panel's order) */
+MK uint32_t mk_verb_amount(uint32_t i)
+{
+    static const uint8_t V[6] = {VB_SINK, VB_CASC, VB_SWELL, VB_WOB, VB_LIFT, VB_SCRAM};
+    int32_t a;
+    if (i >= 6u)
+        return 0;
+    a = maku.va[V[i]];
+    return a < 0 ? 0u : a > 4096 ? 4096u : (uint32_t)a;
 }
 
 /* the key: root 0..11 | scale << 8 (params.c N_SCALE order) */

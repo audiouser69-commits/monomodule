@@ -12,7 +12,9 @@ int64_t floorMod(int64_t a, int64_t b) { return a - floorDiv(a, b) * b; }
 // Purposes of the hashed decisions, so no two decisions share a random number.
 enum Salt : uint64_t {
     kProb = 1, kHold, kPitch, kWalk, kWalkInit, kTuringInit, kTuringFlip, kCycle, kCycleMut, kCycleMutVal,
-    kRatchet, kRatchetN, kRatchetShape, kDrift, kEvolve, kLaneChance = 100, kLaneValue = 200, kLaneCycle = 300, kLaneTuring = 400
+    kRatchet, kRatchetN, kRatchetShape, kDrift, kEvolve,
+    kLinkChord = 50, kLinkLift, kLinkScramble, kLinkScrambleNote,   // (Link: after the song's own, so those keep their numbers)
+    kLaneChance = 100, kLaneValue = 200, kLaneCycle = 300, kLaneTuring = 400
 };
 
 uint64_t mix(uint64_t x)   // splitmix64 finaliser
@@ -165,6 +167,20 @@ int Generator::pickNote(int t, TrackState& st, const TrackParams& p, const Globa
     return notes[idx];
 }
 
+int nearestChordNote(int note, uint16_t chordMask, int low, int high)
+{
+    if ((chordMask & 0xFFF) == 0) return note;
+    int outside = -1;
+    for (int d = 0; d <= 6; ++d)
+        for (int sgn : {-1, 1}) {   // (down first: a tie keeps the line from climbing)
+            const int c = note + sgn * d;
+            if (c < 0 || c > 127 || !((chordMask >> (c % 12)) & 1)) continue;
+            if (c >= low && c <= high) return c;
+            if (outside < 0) outside = c;
+        }
+    return outside >= 0 ? outside : note;
+}
+
 void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, const GlobalParams& gp)
 {
     auto& st = m_tracks[size_t(t)];
@@ -210,7 +226,12 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
     case Cond::NotFirst: ok = (gp.loop > 0 ? cycle : floorDiv(s, steps)) != 0; break;
     default: break;
     }
-    const bool played = ok && unit(hash64(key, kProb)) * 100.0 < p.prob;
+    // the link (MAKU): SINK thins the tracks (the drums the most), SCRAMBLE drops a few hits
+    const Link& lk = gp.link;
+    double prob = p.prob;
+    if (lk.sink > 0.0f) prob *= 1.0 - double(lk.sink) * (p.pitchMode == PitchMode::Fixed ? 0.9 : 0.5);
+    if (lk.scramble > 0.0f) prob *= 1.0 - 0.3 * double(lk.scramble);
+    const bool played = ok && unit(hash64(key, kProb)) * 100.0 < prob;
     st.lastPlayed = played;
     if (!played) return;
 
@@ -236,18 +257,34 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
         idx = std::clamp(int(std::lround((note - 24) / 72.0 * std::max(1, n - 1))), 0, std::max(0, n - 1));
     } else {
         note = pickNote(t, st, p, gp, key, notes, n, idx);
+        if (p.pitchMode != PitchMode::Fixed && n > 0) {   // the link: SCRAMBLE, the chord, LIFT
+            if (lk.scramble > 0.0f && unit(hash64(key, kLinkScramble)) < 0.6 * double(lk.scramble)) {
+                idx = std::clamp(int(unit(hash64(key, kLinkScrambleNote)) * n), 0, n - 1);
+                note = notes[idx];
+            }
+            if (lk.chordMask && lk.chord > 0 && unit(hash64(key, kLinkChord)) * 100.0 < lk.chord)
+                note = nearestChordNote(note, lk.chordMask, p.low + tp, p.high + tp);
+            if (lk.lift > 0.0f && note + 12 <= 127 && unit(hash64(key, kLinkLift)) < 0.5 * double(lk.lift)) note += 12;
+        }
     }
     st.lastNote = note;
 
     // ratchets
+    // (the link: CASCADE rolls the melodic tracks upward, SCRAMBLE rolls everything)
+    const bool melodic = !gridMode && p.pitchMode != PitchMode::Fixed;
+    double rChance = p.ratchetChance;
+    int rMax = p.ratchetMax, rPitch = p.ratchetPitch;
+    if (lk.cascade > 0.0f && melodic) { rChance += 60.0 * double(lk.cascade); rMax = std::max(rMax, 2 + int(std::lround(3.0 * lk.cascade))); if (rPitch == 0) rPitch = 1; }
+    if (lk.scramble > 0.0f) { rChance += 50.0 * double(lk.scramble); rMax = std::max(rMax, 2 + int(std::lround(2.0 * lk.scramble))); }
     int count = 1;
-    if (p.ratchetMax >= 2 && unit(hash64(key, kRatchet)) * 100.0 < p.ratchetChance)
-        count = 2 + std::min(p.ratchetMax - 2, int(unit(hash64(key, kRatchetN)) * (p.ratchetMax - 1)));
-    Shape shape = p.ratchetShape;
+    if (rMax >= 2 && unit(hash64(key, kRatchet)) * 100.0 < rChance)
+        count = 2 + std::min(rMax - 2, int(unit(hash64(key, kRatchetN)) * (rMax - 1)));
+    Shape shape = lk.scramble > 0.5f ? Shape::Random : p.ratchetShape;
     if (shape == Shape::Random) shape = Shape(int(unit(hash64(key, kRatchetShape)) * 3.0));
 
     // timing: swing delays every second step, drift a random amount (both up to half a step)
-    const double delay = ((pos & 1) ? p.swing / 100.0 * 0.5 * q : 0.0) + p.drift / 100.0 * 0.5 * q * unit(hash64(key, kDrift));
+    const double drift = std::min(100.0, p.drift + 40.0 * double(lk.wobble) + 30.0 * double(lk.scramble));   // (WOBBLE, SCRAMBLE)
+    const double delay = ((pos & 1) ? p.swing / 100.0 * 0.5 * q : 0.0) + drift / 100.0 * 0.5 * q * unit(hash64(key, kDrift));
     const double t0 = double(s) * q + delay;
 
     // parameter lanes: the locks this trig sets (the track's previous locks are cleared first)
@@ -281,16 +318,17 @@ void Generator::decideStep(int t, int64_t s, double q, const Transport& tr, cons
 
     // the notes: count repeats spread over one step from t0, each gated. A GRID step holds its note for its own
     // length (it may tie over the next steps: a mono voice then glides legato into the next note)
-    const double gate = std::clamp(p.gate, 1, 100) / 100.0;
+    double gate = std::clamp(p.gate, 1, 100) / 100.0;
+    gate += (1.0 - gate) * double(lk.swell);   // (SWELL: towards legato)
     const double written = gridMode ? gridLength(cell) / 4.0 * q : 0.0;
     const double minLen = std::min(0.004, q * 0.25);
     for (int i = 0; i < count; ++i) {
         const double a = t0 + q * shapeAt(shape, double(i) / count);
         const double b = t0 + q * shapeAt(shape, double(i + 1) / count);
         int nn = note;
-        if (p.ratchetPitch != 0 && i > 0) {
-            if (gridMode || p.pitchMode == PitchMode::Fixed || n == 0) nn = std::clamp(note + i * p.ratchetPitch, 0, 127);
-            else nn = notes[std::clamp(idx + i * p.ratchetPitch, 0, n - 1)];
+        if (rPitch != 0 && i > 0) {
+            if (gridMode || p.pitchMode == PitchMode::Fixed || n == 0) nn = std::clamp(note + i * rPitch, 0, 127);
+            else nn = std::clamp(notes[std::clamp(idx + i * rPitch, 0, n - 1)] + (note - notes[std::clamp(idx, 0, n - 1)]), 0, 127);
         }
         const double off = gridMode ? (count == 1 ? t0 + std::max(minLen, written - 1e-4) : std::min(b, a + std::max(minLen, (b - a) * 0.9)))
                                     : std::min(b, a + std::max(minLen, (b - a) * gate));

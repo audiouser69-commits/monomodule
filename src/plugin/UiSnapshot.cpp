@@ -190,6 +190,25 @@ int main(int argc, char** argv)
             if (auto w = std::unique_ptr<juce::AudioFormatWriter>(wav.createWriterFor(new juce::FileOutputStream(f), rate, 2, 24, {}, 0)))
                 w->writeFromAudioSampleBuffer(rec, 0, pos);
         }
+        // phase 2: the DAW holds SINK (CC 102 on channel 15), MAKU's chord is there for CHORD
+        {
+            juce::MidiBuffer cc;
+            cc.addEvent(juce::MidiMessage::controllerEvent(15, 102, 127), 0);
+            for (int i = 0; i < 60; ++i) {
+                head.info.setPpqPosition(ppq); buf.clear();
+                juce::MidiBuffer m(i == 0 ? cc : juce::MidiBuffer());
+                proc.processBlock(buf, m);
+                ppq += block * bpm / 60.0 / rate;
+            }
+            maku::MakuUi held;
+            proc.makuUi(held);
+            const bool linkOk = held.verb[0] > 0.5f && held.chordMask != 0;
+            std::printf("%s maku link: SINK from CC %.2f, chord %03x\n", linkOk ? "OK" : "FAIL", held.verb[0], unsigned(held.chordMask));
+            ok = ok && linkOk;
+            juce::MidiBuffer off;
+            off.addEvent(juce::MidiMessage::controllerEvent(15, 102, 0), 0);
+            head.info.setPpqPosition(ppq); buf.clear(); proc.processBlock(buf, off);
+        }
         // state: the world and the likes (the transport stopped)
         head.info.setIsPlaying(false);
         proc.makuCommand({maku::MakuCommand::Like});
@@ -211,9 +230,16 @@ int main(int argc, char** argv)
                           && u2.macro[2][1] == 17 && u2.likes == 1 && ui.likes == 1 && ui.seed == u2.seed;
         std::printf("%s maku state: likes %d -> %d, haze tone %d -> %d, seed %u -> %u\n", same ? "OK" : "FAIL", ui.likes, u2.likes,
                     ui.macro[2][1], u2.macro[2][1], ui.seed, u2.seed);
+        // HOST BPM: MAKU's own clock at the host's tempo, running with the transport stopped
+        if (auto* c = other.apvts.getParameter(maku::kClockId)) c->setValueNotifyingHost(c->convertTo0to1(2.0f));
+        head.info.setBpm(101.0);
+        for (int i = 0; i < 200; ++i) { buf.clear(); other.processBlock(buf, midi); }
+        other.makuUi(u2);
+        const bool free = u2.running && u2.bpm == 101 && !u2.extClock;
+        std::printf("%s maku host bpm: running %d at %d BPM\n", free ? "OK" : "FAIL", int(u2.running), u2.bpm);
         proc.setPlayHead(nullptr);
         other.setPlayHead(nullptr);
-        return ok && same ? 0 : 1;
+        return ok && same && free ? 0 : 1;
     }
     if (argc == 2 && juce::String(argv[1]) == "--euclid-state") {
         // --euclid-state: GRID steps and hand mutes survive a session save and reload (prints OK / FAIL)

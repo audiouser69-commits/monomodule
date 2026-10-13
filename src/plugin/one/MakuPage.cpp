@@ -23,7 +23,7 @@ void outline(LcdCanvas& cv, int x, int y, int w, int h)
 constexpr int kScrX = 3, kScrY = 17, kScrW = 160;               // MAKU's screen, drawn 2 x 2 real px a dot
 constexpr int kColX = 170, kColW = 288, kTitleY = 14, kRowY = 26, kRowH = 30;
 constexpr int kNameW = 46, kLevelW = 64, kMacroW = 58;
-constexpr int kButtonsY = 150, kHelpY = 170;
+constexpr int kLinkY = 149, kButtonsY = 161, kHelpY = 180;
 
 const char* const kPartRole[maku::kParts] = {"KICK", "DRONE", "SHIMMER", "ARP"};
 const char* const kPartHelp[maku::kParts] = {
@@ -39,7 +39,10 @@ MakuPage::MakuPage(MnmOneProcessor& p) : m_proc(p)
     for (const F& f : {F{&m_clock, maku::kClockId, "CLOCK", "CLOCK: HOST = MAKU SEGUE IL TEMPO E IL PLAY DELLA DAW (PARTE SULLA BATTUTA); FREE = IL SUO TEMPO, SEMPRE IN MOTO"},
                        F{&m_key, maku::kKeyId, "KEY", "KEY: SEQ > MAKU = MAKU SUONA NELLA ROOT/SCALE DEL SEQUENCER; MAKU > SEQ = IL SEQUENCER PRENDE LA TONALITA' DEL MONDO; OFF = OGNUNO LA SUA"},
                        F{&m_level, maku::kLevelId, "LEVEL", "LEVEL: VOLUME DI MAKU (SUL SUO BUS 'MAKU', O NEL MAIN SE LA DAW NON LO USA)"},
-                       F{&m_on, maku::kOnId, "MAKU", "MAKU ON / OFF: SPENTO NON SUONA E NON CONSUMA CPU"}}) {
+                       F{&m_on, maku::kOnId, "MAKU", "MAKU ON / OFF: SPENTO NON SUONA E NON CONSUMA CPU"},
+                       F{&m_chord, maku::kChordId, "CHORD", "CHORD: QUANTE NOTE MELODICHE DELLE TRACCE EUCLIDEE SI SPOSTANO SULLA NOTA PIU' VICINA DELL'ACCORDO CHE SUONA FLOOR"},
+                       F{&m_verbs, maku::kVerbsId, "VERBS>SEQ", "VERBS > SEQ: QUANTO I GESTI DI MAKU MUOVONO ANCHE IL SEQUENCER: SINK DIRADA, CASCADE FA RATCHET IN SALITA, SWELL ALLUNGA, WOBBLE SBANDA, LIFT ALZA D'OTTAVA, SCRAMBLE ROMPE"},
+                       F{&m_feed, maku::kFeedId, "FEED", "FEED: LE NOTE DI QUESTA TRACCIA EUCLIDEA ENTRANO NELLA FRASE DI VOICE (MAKU LE ASCOLTA E LE RIPRENDE)"}}) {
         f.f->bind(p.apvts, f.id);
         f.f->label = f.label;
         const juce::String help = f.help;
@@ -100,9 +103,14 @@ void MakuPage::resized()
     place(m_clock, 46);
     place(m_key, 64);
     place(m_level, 56);
+    x = kColX;   // the link row, over the buttons
+    auto link = [&](juce::Component& c, int w) { c.setBounds(x * kScale, kLinkY * kScale, w * kScale, 9 * kScale); x += w + 6; };
+    link(m_chord, 52);
+    link(m_verbs, 68);
+    link(m_feed, 40);
     const int bw = (kColW - 3 * 4) / 4;
     int bx = kColX;
-    for (auto* b : {&m_newWorld, &m_like, &m_flat, &m_sharp}) { b->setBounds(bx * kScale, kButtonsY * kScale, bw * kScale, 14 * kScale); bx += bw + 4; }
+    for (auto* b : {&m_newWorld, &m_like, &m_flat, &m_sharp}) { b->setBounds(bx * kScale, kButtonsY * kScale, bw * kScale, 13 * kScale); bx += bw + 4; }
 }
 
 juce::Rectangle<int> MakuPage::cellRect(int cell) const
@@ -233,6 +241,22 @@ void MakuPage::paint(juce::Graphics& g)
     cv.text(small(), ("WORLD " + juce::String(m_ui.world) + "   KEY " + key).toRawUTF8(), kScrX, kScrY + kScrW + 6);
     cv.text(tiny(), ("SEED " + juce::String::toHexString(int(m_ui.seed)).toUpperCase() + "   LIKES " + juce::String(m_ui.likes) + "/16"
                      + (m_ui.liked ? "  LIKED" : "") + (m_ui.drift ? "   DRIFT ON" : "")).toRawUTF8(), kScrX, kScrY + kScrW + 15);
+    {   // the chord FLOOR plays (what CHORD pulls the sequencer to)
+        juce::String ch = "CHORD";
+        for (int i = 0; i < 12; ++i)
+            if ((m_ui.chordMask >> ((m_ui.root + i) % 12)) & 1) ch << " " << mnm::gen::kNoteNames[(m_ui.root + i) % 12];
+        cv.text(tiny(), ch.toRawUTF8(), kScrX, kScrY + kScrW + 23);
+    }
+    {   // the gestures acting now, on MAKU and (VERBS > SEQ) on the sequencer
+        static const char* const kShort[6] = {"SNK", "CAS", "SWL", "WOB", "LFT", "SCR"};
+        for (int i = 0; i < 6; ++i) {
+            const int x = kColX + 180 + i * 18;
+            cv.text(tiny(), kShort[i], x, kLinkY);
+            cv.dotsH(x, x + 14, kLinkY + 7);
+            const int w = int(std::lround(15.0f * juce::jlimit(0.0f, 1.0f, m_ui.verb[size_t(i)])));
+            if (w > 0) cv.fillRect(x, kLinkY + 6, w, 3);
+        }
+    }
 
     // the parts
     cv.fillRect(kColX, kTitleY, kColW, 10);
@@ -267,7 +291,8 @@ void MakuPage::paint(juce::Graphics& g)
     // the help line
     const juce::String help = m_help.isNotEmpty() ? m_help
         : !m_ui.available ? m_proc.makuError().toUpperCase()
-        : juce::String("TASTI SINK..SCRAMBLE = GESTI (TIENI PREMUTO). DRIFT = MOTO PROPRIO. TASTI TRACK 1-4 = PARTE A FUOCO, LA TASTIERA LA SUONA");
+        : juce::String("TASTI SINK..SCRAMBLE = GESTI (TIENI PREMUTO). DRIFT = MOTO PROPRIO. TASTI TRACK 1-4 = PARTE A FUOCO, LA TASTIERA LA SUONA. "
+                       "DALLA DAW: CANALI MIDI 11-14 = PULSE..VOICE, 15 = PARTE A FUOCO; SUL 15 I CC 102-110 = SINK..SCRAMBLE, DRIFT, NEW WORLD, LIKE");
     {
         juce::StringArray words = juce::StringArray::fromTokens(help, " ", "");
         juce::String line;
